@@ -40,7 +40,8 @@ export default function ImportPage() {
       if (!res.ok) {
         setResult({ ok: false, message: json.error || "Import failed" });
       } else {
-        setResult({ ok: true, message: `Saved ${json.doors} doors and ${json.snapshots} snapshot rows for ${json.date} (${json.reps} reps found).` });
+        const skippedNote = json.doorsSkipped > 0 ? ` ${json.doorsSkipped} door(s)' directory info was left alone because you already have newer data for them.` : "";
+        setResult({ ok: true, message: `Saved ${json.doors} doors and ${json.snapshots} snapshot rows for ${json.date} (${json.reps} reps found).${skippedNote}` });
       }
     } catch (e) {
       setResult({ ok: false, message: "Network error while uploading." });
