@@ -5,6 +5,7 @@ import { mapRowsToRecords } from "../../../lib/sheetMapping";
 import { requireAdmin } from "../../../lib/apiAuth";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // seconds — give the workbook parse more headroom
 
 export async function POST(request) {
   const admin = getSupabaseAdmin();
@@ -23,9 +24,20 @@ export async function POST(request) {
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
-    const sheetName = workbook.SheetNames.find((n) => n.toLowerCase() === "data") || workbook.SheetNames[0];
+    // Try to parse only the "Data" tab up front — reading all 14 tabs of a
+    // multi-megabyte workbook is what was pushing this past the function's
+    // time limit. XLSX's `sheets` option skips parsing anything else.
+    let workbook = XLSX.read(buffer, { type: "buffer", cellDates: true, sheets: ["Data"], bookSheets: false });
+    let sheetName = workbook.SheetNames.find((n) => n.toLowerCase() === "data");
+
+    if (!sheetName) {
+      // Fall back to a full parse if there's no tab literally named "Data"
+      // (e.g. a plain CSV export, which shows up as "Sheet1").
+      workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+      sheetName = workbook.SheetNames[0];
+    }
+
     const sheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: true });
 
