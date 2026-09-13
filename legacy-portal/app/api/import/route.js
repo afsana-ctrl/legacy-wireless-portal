@@ -82,13 +82,34 @@ export async function POST(request) {
     if (repsFetchErr) throw repsFetchErr;
     const repIdByName = new Map((repRows || []).map((r) => [r.name, r.id]));
 
-    // 2. Attach rep_id to each door and upsert
+    // 2. Attach rep_id to each door, then filter out any door whose
+    // directory info we've already got from a *newer* snapshot date —
+    // this is what makes it safe to import files out of chronological
+    // order (e.g. backfilling an older month after today's data).
     const doorsWithRep = doors.map((d) => ({
       ...d,
       rep_id: d.ma_field_rep ? repIdByName.get(d.ma_field_rep) || null : null,
+      source_date: snapshotDate,
     }));
-    const { error: doorsErr } = await admin.from("doors").upsert(doorsWithRep, { onConflict: "store_id" });
-    if (doorsErr) throw doorsErr;
+
+    const storeIds = doorsWithRep.map((d) => d.store_id);
+    const { data: existingDoors, error: existingErr } = await admin
+      .from("doors")
+      .select("store_id, source_date")
+      .in("store_id", storeIds);
+    if (existingErr) throw existingErr;
+    const existingDateByStore = new Map((existingDoors || []).map((d) => [d.store_id, d.source_date]));
+
+    const doorsToUpsert = doorsWithRep.filter((d) => {
+      const existingDate = existingDateByStore.get(d.store_id);
+      return !existingDate || snapshotDate >= existingDate;
+    });
+    const skippedDoorCount = doorsWithRep.length - doorsToUpsert.length;
+
+    if (doorsToUpsert.length > 0) {
+      const { error: doorsErr } = await admin.from("doors").upsert(doorsToUpsert, { onConflict: "store_id" });
+      if (doorsErr) throw doorsErr;
+    }
 
     // 3. Upsert this day's snapshot rows
     const snapshotsWithDate = snapshotRows.map((s) => ({ ...s, snapshot_date: snapshotDate }));
@@ -98,6 +119,8 @@ export async function POST(request) {
     return NextResponse.json({
       ok: true,
       doors: doorsWithRep.length,
+      doorsUpdated: doorsToUpsert.length,
+      doorsSkipped: skippedDoorCount,
       snapshots: snapshotsWithDate.length,
       reps: repNames.length,
       date: snapshotDate,
