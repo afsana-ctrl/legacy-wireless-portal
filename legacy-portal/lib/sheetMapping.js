@@ -147,6 +147,29 @@ export const SNAPSHOT_NUMERIC_FIELDS = [
 
 export const SNAPSHOT_FIELDS = ["status", "last_rpm_visit", "last_ma_visit", "low_device", ...SNAPSHOT_NUMERIC_FIELDS];
 
+// Rather than rely only on exact-string header matches for the 2–7 month
+// replenishment columns, also pattern-match on the shape "Current/Prior
+// <N>MR <Acts|Payments|%>" — this catches the same data even if a header
+// has different spacing/casing than expected (e.g. "Current 5MR %" with
+// an extra space). Bounded to 2–7 since that's what the database has
+// columns for.
+const MR_PATTERN = /^(Prior|Current)\s+(\d)\s*MR\s*(Acts|Payments|%)\s*$/i;
+const MR_SUFFIX = { acts: "acts", payments: "pay", "%": "pct" };
+
+function applyMrPatternFields(raw, rec) {
+  for (const key of Object.keys(raw)) {
+    const m = key.match(MR_PATTERN);
+    if (!m) continue;
+    const n = Number(m[2]);
+    if (n < 2 || n > 7) continue;
+    const prefix = m[1].toLowerCase() === "current" ? "cur" : "prev";
+    const suffix = MR_SUFFIX[m[3].toLowerCase()];
+    if (!suffix) continue;
+    const field = `${prefix}_${n}mr_${suffix}`;
+    if (raw[key] !== undefined && raw[key] !== null) rec[field] = raw[key];
+  }
+}
+
 function cleanValue(v) {
   if (v === undefined || v === null) return null;
   if (typeof v === "string") {
@@ -161,6 +184,27 @@ function toNumber(v) {
   const c = cleanValue(v);
   if (c === null) return null;
   const n = typeof c === "number" ? c : parseFloat(String(c).replace(/[^0-9.\-]/g, ""));
+  return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * Percentage fields need extra care: a CSV export bakes Excel's percent
+ * formatting into visible text ("58.80%"), which already represents the
+ * intended value once the "%" is stripped. But a raw .xlsx upload hands us
+ * the underlying fraction instead (0.588 — the way Excel actually stores a
+ * percent-formatted cell), with no "%" in sight to signal that. We use the
+ * value's type as the signal for which case we're in, rather than just its
+ * size — that way a genuinely tiny value like a real "0.50%" (parsed from
+ * text) is never mistaken for a fraction and inflated to 50%.
+ */
+function toPercent(v) {
+  const c = cleanValue(v);
+  if (c === null) return null;
+  if (typeof c === "number") {
+    // No "%" was ever visible — this is Excel's raw stored fraction.
+    return Math.abs(c) <= 1 ? c * 100 : c;
+  }
+  const n = parseFloat(String(c).replace(/[^0-9.\-]/g, ""));
   return Number.isNaN(n) ? null : n;
 }
 
@@ -188,6 +232,7 @@ export function mapRowsToRecords(rows) {
     for (const [header, field] of Object.entries(HEADER_TO_FIELD)) {
       if (raw[header] !== undefined) rec[field] = raw[header];
     }
+    applyMrPatternFields(raw, rec);
     if (!rec.store_id) continue;
 
     rec.contact_name = `${cleanValue(rec._cfirst) || ""} ${cleanValue(rec._clast) || ""}`.trim() || null;
@@ -195,7 +240,7 @@ export function mapRowsToRecords(rows) {
     rec.last_rpm_visit = toDateString(rec.last_rpm_visit);
     rec.last_ma_visit = toDateString(rec.last_ma_visit);
     rec.low_device = cleanValue(rec.low_device) ? true : false;
-    SNAPSHOT_NUMERIC_FIELDS.forEach((f) => (rec[f] = toNumber(rec[f])));
+    SNAPSHOT_NUMERIC_FIELDS.forEach((f) => (rec[f] = f.endsWith("_pct") ? toPercent(rec[f]) : toNumber(rec[f])));
 
     const door = {};
     DOOR_FIELDS.forEach((f) => (door[f] = cleanValue(rec[f]) ?? null));
