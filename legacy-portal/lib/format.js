@@ -50,21 +50,30 @@ export function statusPill(status) {
 
 /** Attach derived KPI percentages to a door + its latest snapshot fields merged together. */
 export function withDerived(row) {
+  const orElse = (direct, n, d) => (direct !== null && direct !== undefined ? direct : pct(n, d));
   return {
     ...row,
-    pacingPct: pct(row.cur_pace, row.cur_quota),
-    curFamilyPct: pct(row.cur_fam, row.cur_acts),
-    curPortPct: pct(row.cur_port, row.cur_acts),
-    cur50Pct: pct(row.cur_50, row.cur_acts),
-    prevFamilyPct: pct(row.prev_fam, row.prev_acts),
-    prevPortPct: pct(row.prev_port, row.prev_acts),
-    prev50Pct: pct(row.prev_50, row.prev_acts),
-    cur2mrPct: pct(row.cur_2m_pay, row.cur_2m_acts),
-    cur3mrPct: pct(row.cur_3m_pay, row.cur_3m_acts),
-    prev2mrPct: pct(row.prev_2m_pay, row.prev_2m_acts),
-    prev3mrPct: pct(row.prev_3m_pay, row.prev_3m_acts),
-    fwaClosePct: pct(row.cur_fwa, row.cur_fwa_eligible),
+    pacingPct: orElse(row.cur_pacing_pct, row.cur_pace, row.cur_quota),
+    curFamilyPct: orElse(row.cur_family_pct, row.cur_fam, row.cur_acts),
+    curPortPct: orElse(row.cur_port_pct, row.cur_port, row.cur_acts),
+    cur50Pct: orElse(row.cur_50_pct, row.cur_50, row.cur_acts),
+    prevFamilyPct: orElse(row.prev_family_pct, row.prev_fam, row.prev_acts),
+    prevPortPct: orElse(row.prev_port_pct, row.prev_port, row.prev_acts),
+    prev50Pct: orElse(row.prev_50_pct, row.prev_50, row.prev_acts),
+    cur2mrPct: orElse(row.cur_2mr_pct, row.cur_2m_pay, row.cur_2m_acts),
+    cur3mrPct: orElse(row.cur_3mr_pct, row.cur_3m_pay, row.cur_3m_acts),
+    prev2mrPct: orElse(row.prev_2mr_pct, row.prev_2m_pay, row.prev_2m_acts),
+    prev3mrPct: orElse(row.prev_3mr_pct, row.prev_3m_pay, row.prev_3m_acts),
+    fwaClosePct: orElse(row.cur_fwa_close_pct, row.cur_fwa, row.cur_fwa_eligible),
     twpProtectPct: pct(row.cur_twp, row.cur_twp_acts),
     promoPct: pct(row.promo_on_hand, row.device_on_hand),
+    // Full replenishment cohort curve, ranges 2–7 months
+    mrCohorts: [2, 3, 4, 5, 6, 7].map((n) => ({
+      months: n,
+      curPct: row[`cur_${n}mr_pct`] ?? null,
+      curActs: row[`cur_${n}mr_acts`] ?? null,
+      prevPct: row[`prev_${n}mr_pct`] ?? null,
+      prevActs: row[`prev_${n}mr_acts`] ?? null,
+    })),
   };
 }

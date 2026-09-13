@@ -166,12 +166,41 @@ export default function DoorDetailPage() {
         <Kpi label="Tablets sold MTD" value={fmtNum(merged.cur_tabs)} sub={`Prior mo. ${fmtNum(merged.prev_tabs)}`} />
       </div>
 
-      <SectionLabel icon={<Radio size={14} />}>Replenishment &amp; protection</SectionLabel>
+      <SectionLabel icon={<Radio size={14} />}>Replenishment cohorts (2–7 month)</SectionLabel>
+      <div style={{ background: "var(--surface)", borderRadius: 3, padding: "4px 16px 8px", marginBottom: 8 }}>
+        {merged.mrCohorts.every((c) => c.curPct === null) ? (
+          <div style={{ padding: "20px 4px", color: "var(--ink-60)", fontSize: 13.5 }}>
+            No replenishment cohort data in this snapshot yet — upload a DLAR-tab export to fill this in.
+          </div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+            <thead>
+              <tr style={{ color: "var(--ink-60)", textAlign: "left" }}>
+                <th style={{ fontWeight: 600, padding: "8px 4px" }}>Cohort</th>
+                <th style={{ fontWeight: 600, padding: "8px 4px" }}>Current</th>
+                <th style={{ fontWeight: 600, padding: "8px 4px" }}>Prior mo.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {merged.mrCohorts.map((c) => (
+                <tr key={c.months} style={{ borderTop: "1px solid var(--line)" }}>
+                  <td style={{ padding: "8px 4px", fontWeight: 600 }}>{c.months}MR</td>
+                  <td style={{ padding: "8px 4px" }} className="display">
+                    {fmtPct(c.curPct)} <span style={{ fontFamily: "IBM Plex Sans", fontWeight: 400, color: "var(--ink-40)", fontSize: 12 }}>({fmtNum(c.curActs)} acts)</span>
+                  </td>
+                  <td style={{ padding: "8px 4px", color: "var(--ink-60)" }}>{fmtPct(c.prevPct)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <SectionLabel icon={<Radio size={14} />}>Protection, FWA &amp; AutoPay</SectionLabel>
       <div className="grid-tiles" style={{ marginBottom: 28 }}>
-        <Kpi label="2-month replenish" value={fmtPct(merged.cur2mrPct)} sub={`Prior mo. ${fmtPct(merged.prev2mrPct)}`} />
-        <Kpi label="3-month replenish" value={fmtPct(merged.cur3mrPct)} sub={`Prior mo. ${fmtPct(merged.prev3mrPct)}`} />
         <Kpi label="Protect attach" value={fmtPct(merged.twpProtectPct)} sub={`${fmtNum(merged.cur_twp)} of ${fmtNum(merged.cur_twp_acts)} acts`} />
         <Kpi label="FWA close rate" value={fmtPct(merged.fwaClosePct)} sub={`${fmtNum(merged.cur_fwa)} activated MTD`} />
+        <Kpi label="Zulu enrollment" value={fmtPct(merged.cur_zulu_pct)} sub={`Prior mo. ${fmtPct(merged.prev_zulu_pct)}`} />
       </div>
 
       <SectionLabel icon={<Store size={14} />}>Location &amp; contacts</SectionLabel>

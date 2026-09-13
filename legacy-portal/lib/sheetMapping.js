@@ -70,6 +70,51 @@ export const HEADER_TO_FIELD = {
   CurEdgeApply: "cur_edge_apply",
   Upgrades: "upgrades",
   CurTops: "cur_tops",
+
+  // --- DLAR tab header names (the richer, human-readable report view) ---
+  // Same underlying fields, different column labels — both are recognized
+  // so either the "Data" tab or the "DLAR" tab can be uploaded.
+  "Prior Acts": "prev_acts",
+  "Current Acts": "cur_acts",
+  "Pacing Acts": "cur_pace",
+  "Current Quota": "cur_quota",
+  "Pacing % to Quota": "cur_pacing_pct",
+  "Current Upgrades": "upgrades",
+  "Current TopUps": "cur_tops",
+  "Current Edge Apply": "cur_edge_apply",
+  "Devices OnHand": "device_on_hand",
+  "<15 Devices OnHand": "low_device",
+  "Promo Device OnHand#": "promo_on_hand",
+  "Current TWP Acts": "cur_twp_acts",
+  "Current TWP Adds": "cur_twp",
+  "Prior TWP Acts": "prev_twp_acts",
+  "Prior TWP Adds": "prev_twp",
+  "Current Family%": "cur_family_pct",
+  "Prior Family%": "prev_family_pct",
+  "Current Port-in%": "cur_port_pct",
+  "Prior Port-in%": "prev_port_pct",
+  "Current $50+ Plan%": "cur_50_pct",
+  "Prior $50+ Plan%": "prev_50_pct",
+  "Current $65+ Plan%": "cur_65_pct",
+  "Prior $65+ Plan%": "prev_65_pct",
+  "Current FWA Close %": "cur_fwa_close_pct",
+  "Prior FWA Close %": "prev_fwa_close_pct",
+  "Prior Zulu%": "prev_zulu_pct",
+  "Current Zulu%": "cur_zulu_pct",
+
+  // Full 2MR–7MR replenishment cohort breakdown (acts, payments, %)
+  "Prior 2MR Acts": "prev_2mr_acts", "Prior 2MR Payments": "prev_2mr_pay", "Prior 2MR%": "prev_2mr_pct",
+  "Current 2MR Acts": "cur_2mr_acts", "Current 2MR Payments": "cur_2mr_pay", "Current 2MR%": "cur_2mr_pct",
+  "Prior 3MR Acts": "prev_3mr_acts", "Prior 3MR Payments": "prev_3mr_pay", "Prior 3MR%": "prev_3mr_pct",
+  "Current 3MR Acts": "cur_3mr_acts", "Current 3MR Payments": "cur_3mr_pay", "Current 3MR%": "cur_3mr_pct",
+  "Prior 4MR Acts": "prev_4mr_acts", "Prior 4MR Payments": "prev_4mr_pay", "Prior 4MR%": "prev_4mr_pct",
+  "Current 4MR Acts": "cur_4mr_acts", "Current 4MR Payments": "cur_4mr_pay", "Current 4MR%": "cur_4mr_pct",
+  "Prior 5MR Acts": "prev_5mr_acts", "Prior 5MR Payments": "prev_5mr_pay", "Prior 5MR%": "prev_5mr_pct",
+  "Current 5MR Acts": "cur_5mr_acts", "Current 5MR Payments": "cur_5mr_pay", "Current 5MR%": "cur_5mr_pct",
+  "Prior 6MR Acts": "prev_6mr_acts", "Prior 6MR Payments": "prev_6mr_pay", "Prior 6MR%": "prev_6mr_pct",
+  "Current 6MR Acts": "cur_6mr_acts", "Current 6MR Payments": "cur_6mr_pay", "Current 6MR%": "cur_6mr_pct",
+  "Prior 7MR Acts": "prev_7mr_acts", "Prior 7MR Payments": "prev_7mr_pay", "Prior 7MR%": "prev_7mr_pct",
+  "Current 7MR Acts": "cur_7mr_acts", "Current 7MR Payments": "cur_7mr_pay", "Current 7MR%": "cur_7mr_pct",
 };
 
 export const DOOR_FIELDS = [
@@ -89,6 +134,15 @@ export const SNAPSHOT_NUMERIC_FIELDS = [
   "cur_twp", "cur_twp_acts", "prev_twp", "prev_twp_acts",
   "cur_tabs", "prev_tabs", "prev_zu_ap_act", "prev_zulu", "prev_ap", "violations",
   "cur_edge_apply", "upgrades", "cur_tops",
+  "cur_pacing_pct", "cur_family_pct", "prev_family_pct", "cur_port_pct", "prev_port_pct",
+  "cur_50_pct", "prev_50_pct", "cur_65_pct", "prev_65_pct", "cur_fwa_close_pct", "prev_fwa_close_pct",
+  "cur_zulu_pct", "prev_zulu_pct",
+  "prev_2mr_acts", "prev_2mr_pay", "prev_2mr_pct", "cur_2mr_acts", "cur_2mr_pay", "cur_2mr_pct",
+  "prev_3mr_acts", "prev_3mr_pay", "prev_3mr_pct", "cur_3mr_acts", "cur_3mr_pay", "cur_3mr_pct",
+  "prev_4mr_acts", "prev_4mr_pay", "prev_4mr_pct", "cur_4mr_acts", "cur_4mr_pay", "cur_4mr_pct",
+  "prev_5mr_acts", "prev_5mr_pay", "prev_5mr_pct", "cur_5mr_acts", "cur_5mr_pay", "cur_5mr_pct",
+  "prev_6mr_acts", "prev_6mr_pay", "prev_6mr_pct", "cur_6mr_acts", "cur_6mr_pay", "cur_6mr_pct",
+  "prev_7mr_acts", "prev_7mr_pay", "prev_7mr_pct", "cur_7mr_acts", "cur_7mr_pay", "cur_7mr_pct",
 ];
 
 export const SNAPSHOT_FIELDS = ["status", "last_rpm_visit", "last_ma_visit", "low_device", ...SNAPSHOT_NUMERIC_FIELDS];
@@ -125,8 +179,8 @@ function toDateString(v) {
  * with header row detection) and returns { doors, snapshotRows, repNames }.
  */
 export function mapRowsToRecords(rows) {
-  const doors = [];
-  const snapshotRows = [];
+  const doorsByStore = new Map();
+  const snapshotsByStore = new Map();
   const repNames = new Set();
 
   for (const raw of rows) {
@@ -145,16 +199,24 @@ export function mapRowsToRecords(rows) {
 
     const door = {};
     DOOR_FIELDS.forEach((f) => (door[f] = cleanValue(rec[f]) ?? null));
-    doors.push(door);
+    // If a Store ID appears more than once in the sheet, the last occurrence
+    // wins — this also protects the database upsert, which otherwise
+    // errors on "ON CONFLICT DO UPDATE command cannot affect row a second
+    // time" when the same key shows up twice in one batch.
+    doorsByStore.set(door.store_id, door);
 
     const snap = { store_id: rec.store_id };
     SNAPSHOT_FIELDS.forEach((f) => (snap[f] = rec[f] ?? null));
-    snapshotRows.push(snap);
+    snapshotsByStore.set(rec.store_id, snap);
 
     if (rec.ma_field_rep && !String(rec.ma_field_rep).toUpperCase().includes("UNASSIGNED")) {
       repNames.add(String(rec.ma_field_rep).trim());
     }
   }
 
-  return { doors, snapshotRows, repNames: Array.from(repNames) };
+  return {
+    doors: Array.from(doorsByStore.values()),
+    snapshotRows: Array.from(snapshotsByStore.values()),
+    repNames: Array.from(repNames),
+  };
 }

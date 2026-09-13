@@ -33,13 +33,33 @@ export async function POST(request) {
 
     if (!sheetName) {
       // Fall back to a full parse if there's no tab literally named "Data"
-      // (e.g. a plain CSV export, which shows up as "Sheet1").
+      // (e.g. a CSV export of the DLAR tab, which shows up as "Sheet1").
       workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
       sheetName = workbook.SheetNames[0];
     }
 
     const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: true });
+
+    // The "Data" tab has its header on row 1. The "DLAR" tab has a few
+    // title/filter rows above the real header row. Rather than assume
+    // either layout, scan the first 10 rows for whichever one starts with
+    // "Store ID" and treat that as the header row.
+    const asArrays = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+    const headerRowIndex = asArrays.findIndex((row) => String(row?.[0] ?? "").trim() === "Store ID");
+    if (headerRowIndex === -1) {
+      return NextResponse.json(
+        { error: "Couldn't find a 'Store ID' column in the first 10 rows of this file. Make sure you're uploading the Data or DLAR tab." },
+        { status: 400 }
+      );
+    }
+    const headerRow = asArrays[headerRowIndex];
+    const rows = asArrays.slice(headerRowIndex + 1).map((row) => {
+      const obj = {};
+      headerRow.forEach((h, i) => {
+        if (h) obj[h] = row[i] === undefined ? null : row[i];
+      });
+      return obj;
+    });
 
     const { doors, snapshotRows, repNames } = mapRowsToRecords(rows);
 
