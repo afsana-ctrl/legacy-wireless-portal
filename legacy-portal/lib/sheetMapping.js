@@ -5,6 +5,7 @@
 
 export const HEADER_TO_FIELD = {
   "Store ID": "store_id",
+  "Door TSP": "door_tsp",
   Address: "address",
   City: "city",
   State: "state",
@@ -118,7 +119,7 @@ export const HEADER_TO_FIELD = {
 };
 
 export const DOOR_FIELDS = [
-  "store_id", "address", "city", "state", "zip", "market", "district", "region",
+  "store_id", "door_tsp", "address", "city", "state", "zip", "market", "district", "region",
   "sub_agent_name", "tenure", "building_type", "open_date",
   "ma_field_rep", "ma_field_phone", "ma_field_email",
   "contact_name", "contact_phone", "rpm", "sm",
