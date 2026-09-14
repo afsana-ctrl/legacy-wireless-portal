@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { ChevronLeft, MapPin, TrendingUp, Calendar, Package, Radio, Store } from "lucide-react";
+import { ChevronLeft, MapPin, TrendingUp, Calendar, Package, Radio, Store, MessageSquare } from "lucide-react";
 import { supabase } from "../../../lib/supabaseClient";
 import { useProfile } from "../../../lib/useProfile";
 import { fmtNum, fmtPct, fmtDate, fmtDayShort, paceStatus, statusPill, withDerived } from "../../../lib/format";
@@ -18,12 +18,61 @@ const METRICS = [
 export default function DoorDetailPage() {
   const { storeId } = useParams();
   const router = useRouter();
-  const { loading: authLoading, profile } = useProfile();
+  const { loading: authLoading, profile, user } = useProfile();
 
   const [door, setDoor] = useState(null);
   const [snapshots, setSnapshots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [metric, setMetric] = useState("cur_acts");
+
+  const [notes, setNotes] = useState([]);
+  const [notesLoading, setNotesLoading] = useState(true);
+  const [noteText, setNoteText] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteError, setNoteError] = useState(null);
+
+  async function loadNotes() {
+    setNotesLoading(true);
+    const { data, error } = await supabase
+      .from("door_notes")
+      .select("id, note, author_email, created_at")
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false });
+    if (error) console.error(error);
+    setNotes(data || []);
+    setNotesLoading(false);
+  }
+
+  useEffect(() => {
+    if (!profile) return;
+    loadNotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, profile]);
+
+  async function handleAddNote() {
+    if (!noteText.trim()) return;
+    setNoteBusy(true);
+    setNoteError(null);
+    const { error } = await supabase.from("door_notes").insert({
+      store_id: storeId,
+      author_id: user.id,
+      author_email: user.email,
+      note: noteText.trim(),
+    });
+    if (error) {
+      setNoteError(error.message);
+    } else {
+      setNoteText("");
+      await loadNotes();
+    }
+    setNoteBusy(false);
+  }
+
+  function fmtNoteTime(s) {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
 
   useEffect(() => {
     if (!profile) return;
@@ -88,6 +137,7 @@ export default function DoorDetailPage() {
               {merged.status}
             </span>
             <span style={{ color: "var(--ink-60)", fontSize: 13 }}>{merged.store_id}</span>
+            {merged.door_tsp && <span style={{ color: "var(--ink-40)", fontSize: 13 }}>· TSP {merged.door_tsp}</span>}
           </div>
           <h1 className="display" style={{ fontSize: 30, margin: 0 }}>
             {merged.address}
@@ -102,6 +152,44 @@ export default function DoorDetailPage() {
           </div>
           <div style={{ fontSize: 11.5, fontWeight: 600 }}>{paceSt.label}</div>
         </div>
+      </div>
+
+      <SectionLabel icon={<MessageSquare size={14} />}>Visit notes</SectionLabel>
+      <div style={{ background: "var(--surface)", borderRadius: 3, padding: "14px 16px", marginBottom: 8 }}>
+        <textarea
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="What happened on this visit? Inventory issues, conversations with staff, anything worth remembering next time…"
+          rows={3}
+          style={{ width: "100%", padding: "10px", fontSize: 14, fontFamily: "inherit", border: "1px solid var(--line)", borderRadius: 3, background: "white", color: "var(--ink)", resize: "vertical" }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+          <span style={{ fontSize: 12, color: "var(--ink-40)" }}>{user?.email}</span>
+          <button
+            className="btn-reset"
+            disabled={noteBusy || !noteText.trim()}
+            onClick={handleAddNote}
+            style={{ padding: "7px 16px", borderRadius: 3, background: "var(--ink)", color: "var(--paper)", fontWeight: 600, fontSize: 13.5, opacity: noteBusy || !noteText.trim() ? 0.5 : 1 }}
+          >
+            {noteBusy ? "Saving…" : "Add note"}
+          </button>
+        </div>
+        {noteError && <div style={{ color: "var(--rust)", fontSize: 13, marginTop: 8 }}>{noteError}</div>}
+      </div>
+      <div style={{ marginBottom: 28 }}>
+        {notesLoading && <div style={{ padding: "12px 4px", color: "var(--ink-60)", fontSize: 13.5 }}>Loading notes…</div>}
+        {!notesLoading && notes.length === 0 && (
+          <div style={{ padding: "12px 4px", color: "var(--ink-60)", fontSize: 13.5 }}>No visit notes yet — be the first to log one.</div>
+        )}
+        {!notesLoading &&
+          notes.map((n) => (
+            <div key={n.id} style={{ padding: "12px 4px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.note}</div>
+              <div style={{ fontSize: 12, color: "var(--ink-40)", marginTop: 4 }}>
+                {n.author_email} · {fmtNoteTime(n.created_at)}
+              </div>
+            </div>
+          ))}
       </div>
 
       <SectionLabel icon={<TrendingUp size={14} />}>Activations — current vs. prior month</SectionLabel>
@@ -205,6 +293,7 @@ export default function DoorDetailPage() {
 
       <SectionLabel icon={<Store size={14} />}>Location &amp; contacts</SectionLabel>
       <div style={{ background: "var(--surface)", borderRadius: 3, padding: "16px 18px", fontSize: 14, lineHeight: 1.9 }}>
+        <ContactLine label="Door TSP" value={merged.door_tsp} />
         <ContactLine label="Store contact" value={merged.contact_name} extra={merged.contact_phone} />
         <ContactLine label="MA field rep" value={merged.ma_field_rep} extra={merged.ma_field_phone} />
         <ContactLine label="Verizon RPM" value={merged.rpm} />
