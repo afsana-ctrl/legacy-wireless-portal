@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users } from "lucide-react";
+import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import { supabase } from "../../lib/supabaseClient";
 import { useProfile, signOut } from "../../lib/useProfile";
 import { fmtNum, fmtDate, delta, paceStatus, statusPill, withDerived } from "../../lib/format";
@@ -17,6 +18,7 @@ export default function DashboardPage() {
   const [latestDate, setLatestDate] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [view, setView] = useState("list"); // list | charts
 
   const isAdmin = profile?.role === "admin";
 
@@ -194,32 +196,148 @@ export default function DashboardPage() {
         {latestDate ? `Last updated ${fmtDate(latestDate)}` : "No data imported yet"}
       </p>
 
-      <div style={{ position: "relative", marginBottom: 4 }}>
-        <Search size={16} style={{ position: "absolute", left: 12, top: 12, color: "var(--ink-40)" }} />
-        <input
-          className="field-input"
-          style={{ paddingLeft: 36 }}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by address, city, market, or store ID"
-        />
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        <button
+          className="btn-reset"
+          onClick={() => setView("list")}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+            background: view === "list" ? "var(--ink)" : "var(--surface)", color: view === "list" ? "var(--paper)" : "var(--ink-60)",
+            border: `1px solid ${view === "list" ? "var(--ink)" : "var(--line)"}`,
+          }}
+        >
+          <List size={14} /> List
+        </button>
+        <button
+          className="btn-reset"
+          onClick={() => setView("charts")}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+            background: view === "charts" ? "var(--ink)" : "var(--surface)", color: view === "charts" ? "var(--paper)" : "var(--ink-60)",
+            border: `1px solid ${view === "charts" ? "var(--ink)" : "var(--line)"}`,
+          }}
+        >
+          <BarChart3 size={14} /> Charts
+        </button>
       </div>
 
-      <div style={{ marginTop: 8 }}>
-        {dataLoading && <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>Loading locations…</div>}
-        {!dataLoading && filtered.length === 0 && (
-          <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>
-            {doors.length === 0 ? "No locations assigned yet." : `No locations match "${query}".`}
+      {view === "list" && (
+        <>
+          <div style={{ position: "relative", marginBottom: 4 }}>
+            <Search size={16} style={{ position: "absolute", left: 12, top: 12, color: "var(--ink-40)" }} />
+            <input
+              className="field-input"
+              style={{ paddingLeft: 36 }}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by address, city, market, or store ID"
+            />
           </div>
-        )}
-        {!dataLoading &&
-          filtered
-            .slice()
-            .sort((a, b) => (a.pacingPct ?? 999) - (b.pacingPct ?? 999))
-            .map((d) => <DoorRow key={d.store_id} door={d} onOpen={() => router.push(`/dashboard/${d.store_id}`)} />)}
-      </div>
+
+          <div style={{ marginTop: 8 }}>
+            {dataLoading && <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>Loading locations…</div>}
+            {!dataLoading && filtered.length === 0 && (
+              <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>
+                {doors.length === 0 ? "No locations assigned yet." : `No locations match "${query}".`}
+              </div>
+            )}
+            {!dataLoading &&
+              filtered
+                .slice()
+                .sort((a, b) => (a.pacingPct ?? 999) - (b.pacingPct ?? 999))
+                .map((d) => <DoorRow key={d.store_id} door={d} onOpen={() => router.push(`/dashboard/${d.store_id}`)} />)}
+          </div>
+        </>
+      )}
+
+      {view === "charts" && !dataLoading && (
+        <>
+          <ChartLabel>Pacing % to quota — all locations</ChartLabel>
+          <PacingChart doors={filtered} onOpen={(id) => router.push(`/dashboard/${id}`)} />
+          <ChartLabel>Current Acts vs. Quota — all locations</ChartLabel>
+          <ActsVsQuotaChart doors={filtered} onOpen={(id) => router.push(`/dashboard/${id}`)} />
+        </>
+      )}
     </div>
   );
+}
+
+function ChartLabel({ children }) {
+  return <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-60)", margin: "20px 2px 8px" }}>{children}</div>;
+}
+
+function truncateName(s, n = 30) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+function PacingChart({ doors, onOpen }) {
+  const data = doors
+    .slice()
+    .sort((a, b) => (a.pacingPct ?? 999) - (b.pacingPct ?? 999))
+    .map((d) => ({ name: truncateName(d.address), storeId: d.store_id, pacing: d.pacingPct ?? 0, color: paceStatus(d.pacingPct).color }));
+
+  if (data.length === 0) return <EmptyChart />;
+  const height = Math.max(160, data.length * 26 + 40);
+
+  return (
+    <div style={{ background: "var(--surface)", borderRadius: 3, padding: "16px 8px 8px", marginBottom: 8 }}>
+      <ResponsiveContainer width="100%" height={height}>
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 30, left: 0, bottom: 0 }} onClick={(e) => e?.activePayload?.[0] && onOpen(e.activePayload[0].payload.storeId)}>
+          <CartesianGrid stroke="var(--line)" horizontal={false} />
+          <XAxis type="number" tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: "#5b655f" }} axisLine={{ stroke: "#d9d6c9" }} tickLine={false} />
+          <YAxis type="category" dataKey="name" width={160} tick={{ fontSize: 11, fill: "#1b2521" }} axisLine={false} tickLine={false} />
+          <Tooltip
+            cursor={{ fill: "var(--line)", opacity: 0.4 }}
+            formatter={(v) => [`${Number(v).toFixed(1)}%`, "Pacing"]}
+            contentStyle={{ background: "#1b2521", border: "none", borderRadius: 4, fontSize: 13 }}
+            labelStyle={{ color: "#ecead2" }}
+            itemStyle={{ color: "#ecead2" }}
+          />
+          <Bar dataKey="pacing" radius={[0, 3, 3, 0]} cursor="pointer">
+            {data.map((d, i) => (
+              <Cell key={i} fill={d.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ActsVsQuotaChart({ doors, onOpen }) {
+  const data = doors
+    .slice()
+    .sort((a, b) => (b.cur_acts || 0) - (a.cur_acts || 0))
+    .map((d) => ({ name: truncateName(d.address), storeId: d.store_id, acts: d.cur_acts || 0, quota: d.cur_quota || 0 }));
+
+  if (data.length === 0) return <EmptyChart />;
+  const height = Math.max(160, data.length * 30 + 40);
+
+  return (
+    <div style={{ background: "var(--surface)", borderRadius: 3, padding: "16px 8px 8px", marginBottom: 28 }}>
+      <ResponsiveContainer width="100%" height={height}>
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 20, left: 0, bottom: 0 }} onClick={(e) => e?.activePayload?.[0] && onOpen(e.activePayload[0].payload.storeId)}>
+          <CartesianGrid stroke="var(--line)" horizontal={false} />
+          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#5b655f" }} axisLine={{ stroke: "#d9d6c9" }} tickLine={false} />
+          <YAxis type="category" dataKey="name" width={160} tick={{ fontSize: 11, fill: "#1b2521" }} axisLine={false} tickLine={false} />
+          <Tooltip
+            cursor={{ fill: "var(--line)", opacity: 0.4 }}
+            contentStyle={{ background: "#1b2521", border: "none", borderRadius: 4, fontSize: 13 }}
+            labelStyle={{ color: "#ecead2" }}
+            itemStyle={{ color: "#ecead2" }}
+          />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="quota" name="Quota" fill="var(--line)" radius={[0, 3, 3, 0]} cursor="pointer" />
+          <Bar dataKey="acts" name="Current Acts" fill="var(--teal)" radius={[0, 3, 3, 0]} cursor="pointer" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function EmptyChart() {
+  return <div style={{ padding: "32px 4px", color: "var(--ink-60)", background: "var(--surface)", borderRadius: 3, marginBottom: 24 }}>No locations to chart yet.</div>;
 }
 
 function Centered({ children }) {
