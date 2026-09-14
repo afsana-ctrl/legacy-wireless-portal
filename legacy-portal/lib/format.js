@@ -10,7 +10,10 @@ export function fmtPct(n) {
 
 export function fmtDate(s) {
   if (!s) return "—";
-  const d = new Date(s);
+  // Appending T00:00:00 forces this to parse as local midnight instead of
+  // UTC midnight — without it, US timezones would display one day earlier
+  // than the actual date (e.g. "2026-09-13" rendering as Sep 12).
+  const d = new Date(s + "T00:00:00");
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
