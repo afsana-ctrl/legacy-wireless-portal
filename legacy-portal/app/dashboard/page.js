@@ -2,11 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3 } from "lucide-react";
+import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import { supabase } from "../../lib/supabaseClient";
 import { useProfile, signOut } from "../../lib/useProfile";
-import { fmtNum, fmtDate, delta, paceStatus, statusPill, withDerived } from "../../lib/format";
+import { fmtNum, fmtPct, fmtDate, delta, paceStatus, statusPill, withDerived } from "../../lib/format";
+
+const WATCHLIST_RULES = [
+  { key: "pacing", label: "Pacing Acts", test: (d) => d.cur_pace != null && d.cur_pace < 30, describe: (d) => `Pacing Acts ${fmtNum(d.cur_pace)} (< 30)` },
+  { key: "mr4", label: "4MR", test: (d) => d.cur_4mr_pct != null && d.cur_4mr_pct < 65, describe: (d) => `4MR ${fmtPct(d.cur_4mr_pct)} (< 65%)` },
+  { key: "mr5", label: "5MR", test: (d) => d.cur_5mr_pct != null && d.cur_5mr_pct < 65, describe: (d) => `5MR ${fmtPct(d.cur_5mr_pct)} (< 65%)` },
+  { key: "mr7", label: "7MR", test: (d) => d.cur_7mr_pct != null && d.cur_7mr_pct < 65, describe: (d) => `7MR ${fmtPct(d.cur_7mr_pct)} (< 65%)` },
+  { key: "zulu", label: "Zulu", test: (d) => d.cur_zulu_pct != null && d.cur_zulu_pct > 4, describe: (d) => `Zulu ${fmtPct(d.cur_zulu_pct)} (> 4%)` },
+  { key: "twp", label: "TWP+", test: (d) => d.twpProtectPct != null && d.twpProtectPct < 65, describe: (d) => `TWP+ ${fmtPct(d.twpProtectPct)} (< 65%)` },
+];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -219,6 +228,17 @@ export default function DashboardPage() {
         >
           <BarChart3 size={14} /> Charts
         </button>
+        <button
+          className="btn-reset"
+          onClick={() => setView("watchlist")}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+            background: view === "watchlist" ? "var(--ink)" : "var(--surface)", color: view === "watchlist" ? "var(--paper)" : "var(--ink-60)",
+            border: `1px solid ${view === "watchlist" ? "var(--ink)" : "var(--line)"}`,
+          }}
+        >
+          <AlertTriangle size={14} /> Watchlist
+        </button>
       </div>
 
       {view === "list" && (
@@ -258,7 +278,63 @@ export default function DashboardPage() {
           <ActsVsQuotaChart doors={filtered} onOpen={(id) => router.push(`/dashboard/${id}`)} />
         </>
       )}
+
+      {view === "watchlist" && !dataLoading && (
+        <WatchlistView doors={filtered} latestDate={latestDate} onOpen={(id) => router.push(`/dashboard/${id}`)} />
+      )}
     </div>
+  );
+}
+
+function WatchlistView({ doors, latestDate, onOpen }) {
+  const flagged = doors
+    .map((d) => ({ door: d, reasons: WATCHLIST_RULES.filter((r) => r.test(d)) }))
+    .filter((x) => x.reasons.length > 0)
+    .sort((a, b) => b.reasons.length - a.reasons.length);
+
+  return (
+    <div>
+      <p style={{ color: "var(--ink-60)", fontSize: 13, margin: "0 2px 16px" }}>
+        {flagged.length} of {doors.length} location{doors.length === 1 ? "" : "s"} flagged, based on the {latestDate ? fmtDate(latestDate) : "latest"} upload.
+      </p>
+      {flagged.length === 0 && <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>Nothing flagged right now.</div>}
+      {flagged.map(({ door, reasons }) => (
+        <WatchlistRow key={door.store_id} door={door} reasons={reasons} onOpen={() => onOpen(door.store_id)} />
+      ))}
+    </div>
+  );
+}
+
+function WatchlistRow({ door, reasons, onOpen }) {
+  const sp = statusPill(door.status);
+  return (
+    <button
+      className="btn-reset"
+      onClick={onOpen}
+      style={{ display: "block", width: "100%", textAlign: "left", padding: "14px 12px", borderBottom: "1px solid var(--line)" }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{door.address}</div>
+          <div style={{ fontSize: 13, color: "var(--ink-60)", marginTop: 2, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span>{door.city}, {door.state}</span>
+            <span>·</span>
+            <span>{door.store_id}</span>
+            <span className="pill" style={{ background: sp.bg, color: sp.color }}>{door.status}</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--rust)", flexShrink: 0, whiteSpace: "nowrap" }}>
+          {reasons.length} flag{reasons.length > 1 ? "s" : ""}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+        {reasons.map((r) => (
+          <span key={r.key} className="pill" style={{ background: "var(--rust-soft)", color: "var(--rust)" }}>
+            {r.describe(door)}
+          </span>
+        ))}
+      </div>
+    </button>
   );
 }
 
