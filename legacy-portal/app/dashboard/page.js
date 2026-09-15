@@ -27,7 +27,10 @@ export default function DashboardPage() {
   const [latestDate, setLatestDate] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState("list"); // list | charts
+  const [view, setView] = useState("list"); // list | charts | watchlist | dealer | subagent | team
+  const [teamDoors, setTeamDoors] = useState([]);
+  const [teamLoading, setTeamLoading] = useState(true);
+  const [teamLatestDate, setTeamLatestDate] = useState(null);
 
   const isAdmin = profile?.role === "admin";
 
@@ -112,6 +115,51 @@ export default function DashboardPage() {
 
   const selectedRep = reps.find((r) => r.id === selectedRepId) || profile?.reps || null;
 
+  // Admin-only: load every rep's doors at once for the Team comparison view.
+  useEffect(() => {
+    if (!isAdmin || view !== "team") return;
+    let active = true;
+    setTeamLoading(true);
+
+    async function load() {
+      const { data: doorRows, error: doorErr } = await supabase.from("doors").select("*");
+      if (doorErr) console.error(doorErr);
+      const storeIds = (doorRows || []).map((d) => d.store_id);
+      if (storeIds.length === 0) {
+        if (active) {
+          setTeamDoors([]);
+          setTeamLatestDate(null);
+          setTeamLoading(false);
+        }
+        return;
+      }
+      const { data: snapRows, error: snapErr } = await supabase
+        .from("snapshots")
+        .select("*")
+        .in("store_id", storeIds)
+        .order("snapshot_date", { ascending: false });
+      if (snapErr) console.error(snapErr);
+
+      const byStore = new Map();
+      for (const row of snapRows || []) {
+        if (!byStore.has(row.store_id)) byStore.set(row.store_id, row);
+      }
+      const allDates = (snapRows || []).map((r) => r.snapshot_date);
+      const newest = allDates.length ? allDates.reduce((a, b) => (a > b ? a : b)) : null;
+
+      const merged = (doorRows || []).map((d) => withDerived({ ...d, ...(byStore.get(d.store_id) || {}) }));
+      if (!active) return;
+      setTeamDoors(merged);
+      setTeamLatestDate(newest);
+      setTeamLoading(false);
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [isAdmin, view]);
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
     return doors.filter((d) => {
@@ -150,68 +198,102 @@ export default function DashboardPage() {
 
   return (
     <div className="container">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <div className="display" style={{ fontSize: 13, color: "var(--teal)", marginBottom: 6 }}>
-            Legacy Wireless — Field Portal
-          </div>
-          {isAdmin ? (
-            <select
-              value={selectedRepId || ""}
-              onChange={(e) => setSelectedRepId(e.target.value)}
-              className="display"
-              style={{ fontSize: 28, border: "none", background: "transparent", padding: 0, appearance: "none" }}
-            >
-              {reps.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          ) : (
+      {view === "team" ? (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div className="display" style={{ fontSize: 13, color: "var(--teal)", marginBottom: 6 }}>
+              Legacy Wireless — Field Portal
+            </div>
             <h1 className="display" style={{ fontSize: 32, margin: 0 }}>
-              {selectedRep?.name || "Your locations"}
+              Team overview
             </h1>
-          )}
-          <div style={{ display: "flex", gap: 14, marginTop: 8, color: "var(--ink-60)", fontSize: 13.5, flexWrap: "wrap" }}>
-            {selectedRep?.phone && (
-              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <Phone size={13} /> {selectedRep.phone}
-              </span>
-            )}
-            {selectedRep?.email && (
-              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <Mail size={13} /> {selectedRep.email}
-              </span>
-            )}
+            <p style={{ color: "var(--ink-60)", fontSize: 13.5, marginTop: 6 }}>Every rep, compared side by side. Click one to see their full dashboard.</p>
+          </div>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            <NavLink icon={<UploadCloud size={14} />} label="Import data" onClick={() => router.push("/admin/import")} />
+            <NavLink icon={<Users size={14} />} label="Assign reps" onClick={() => router.push("/admin/assign")} />
+            <NavLink icon={<LogOut size={14} />} label="Sign out" onClick={() => signOut(router)} />
           </div>
         </div>
-        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-          {isAdmin && (
-            <>
-              <NavLink icon={<UploadCloud size={14} />} label="Import data" onClick={() => router.push("/admin/import")} />
-              <NavLink icon={<Users size={14} />} label="Assign reps" onClick={() => router.push("/admin/assign")} />
-            </>
-          )}
-          <NavLink icon={<LogOut size={14} />} label="Sign out" onClick={() => signOut(router)} />
-        </div>
-      </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div className="display" style={{ fontSize: 13, color: "var(--teal)", marginBottom: 6 }}>
+                Legacy Wireless — Field Portal
+              </div>
+              {isAdmin ? (
+                <select
+                  value={selectedRepId || ""}
+                  onChange={(e) => setSelectedRepId(e.target.value)}
+                  className="display"
+                  style={{ fontSize: 28, border: "none", background: "transparent", padding: 0, appearance: "none" }}
+                >
+                  {reps.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <h1 className="display" style={{ fontSize: 32, margin: 0 }}>
+                  {selectedRep?.name || "Your locations"}
+                </h1>
+              )}
+              <div style={{ display: "flex", gap: 14, marginTop: 8, color: "var(--ink-60)", fontSize: 13.5, flexWrap: "wrap" }}>
+                {selectedRep?.phone && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <Phone size={13} /> {selectedRep.phone}
+                  </span>
+                )}
+                {selectedRep?.email && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <Mail size={13} /> {selectedRep.email}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+              {isAdmin && (
+                <>
+                  <NavLink icon={<UploadCloud size={14} />} label="Import data" onClick={() => router.push("/admin/import")} />
+                  <NavLink icon={<Users size={14} />} label="Assign reps" onClick={() => router.push("/admin/assign")} />
+                </>
+              )}
+              <NavLink icon={<LogOut size={14} />} label="Sign out" onClick={() => signOut(router)} />
+            </div>
+          </div>
 
-      <div className="grid-tiles" style={{ marginBottom: 8 }}>
-        <StatTile label="Locations" value={doors.length} />
-        <StatTile label="Activations MTD" value={fmtNum(totalActs)} />
-        <StatTile label="Combined quota" value={fmtNum(totalQuota)} />
-        <StatTile label="On pace" value={onPaceCount} tone="var(--teal)" />
-        <StatTile label="Needs attention" value={behindCount} tone={behindCount > 0 ? "var(--rust)" : undefined} />
-        <StatTile label="Avg 4MR%" value={fmtPct(avgMr4)} />
-        <StatTile label="Avg 5MR%" value={fmtPct(avgMr5)} />
-        <StatTile label="Avg 7MR%" value={fmtPct(avgMr7)} />
-      </div>
-      <p style={{ color: "var(--ink-40)", fontSize: 12, margin: "0 2px 20px" }}>
-        {latestDate ? `Last updated ${fmtDate(latestDate)}` : "No data imported yet"}
-      </p>
+          <div className="grid-tiles" style={{ marginBottom: 8 }}>
+            <StatTile label="Locations" value={doors.length} />
+            <StatTile label="Activations MTD" value={fmtNum(totalActs)} />
+            <StatTile label="Combined quota" value={fmtNum(totalQuota)} />
+            <StatTile label="On pace" value={onPaceCount} tone="var(--teal)" />
+            <StatTile label="Needs attention" value={behindCount} tone={behindCount > 0 ? "var(--rust)" : undefined} />
+            <StatTile label="Avg 4MR%" value={fmtPct(avgMr4)} />
+            <StatTile label="Avg 5MR%" value={fmtPct(avgMr5)} />
+            <StatTile label="Avg 7MR%" value={fmtPct(avgMr7)} />
+          </div>
+          <p style={{ color: "var(--ink-40)", fontSize: 12, margin: "0 2px 20px" }}>
+            {latestDate ? `Last updated ${fmtDate(latestDate)}` : "No data imported yet"}
+          </p>
+        </>
+      )}
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        {isAdmin && (
+          <button
+            className="btn-reset"
+            onClick={() => setView("team")}
+            style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+              background: view === "team" ? "var(--ink)" : "var(--surface)", color: view === "team" ? "var(--paper)" : "var(--ink-60)",
+              border: `1px solid ${view === "team" ? "var(--ink)" : "var(--line)"}`,
+            }}
+          >
+            <Users size={14} /> Team
+          </button>
+        )}
         <button
           className="btn-reset"
           onClick={() => setView("list")}
@@ -311,11 +393,102 @@ export default function DashboardPage() {
         <WatchlistView doors={filtered} latestDate={latestDate} onOpen={(id) => router.push(`/dashboard/${id}`)} />
       )}
 
+      {view === "team" && (
+        <TeamView
+          doors={teamDoors}
+          reps={reps}
+          loading={teamLoading}
+          latestDate={teamLatestDate}
+          onSelectRep={(repId) => {
+            setSelectedRepId(repId);
+            setView("list");
+          }}
+        />
+      )}
+
       {view === "dealer" && !dataLoading && <DealerView doors={filtered} />}
 
       {view === "subagent" && !dataLoading && (
         <SubAgentView doors={filtered} latestDate={latestDate} onOpen={(id) => router.push(`/dashboard/${id}`)} />
       )}
+    </div>
+  );
+}
+
+function TeamView({ doors, reps, loading, latestDate, onSelectRep }) {
+  if (loading) {
+    return <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>Loading team data…</div>;
+  }
+
+  const repById = new Map(reps.map((r) => [r.id, r]));
+  const groups = new Map();
+  doors.forEach((d) => {
+    const key = d.rep_id || "unassigned";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(d);
+  });
+
+  const rows = Array.from(groups.entries())
+    .map(([repId, list]) => ({
+      repId,
+      name: repId === "unassigned" ? "Unassigned" : repById.get(repId)?.name || "Unknown rep",
+      count: list.length,
+      avgPacing: avg(list.map((d) => d.pacingPct)),
+      totalActs: list.reduce((s, d) => s + (d.cur_acts || 0), 0),
+      totalQuota: list.reduce((s, d) => s + (d.cur_quota || 0), 0),
+      needsAttention: list.filter((d) => d.pacingPct !== null && d.pacingPct < 80).length,
+      avgMr4: avg(list.map((d) => d.cur_4mr_pct)),
+      avgMr5: avg(list.map((d) => d.cur_5mr_pct)),
+      avgMr7: avg(list.map((d) => d.cur_7mr_pct)),
+      avgTwp: avg(list.map((d) => d.twpProtectPct)),
+      avgZulu: avg(list.map((d) => d.cur_zulu_pct)),
+    }))
+    .filter((r) => r.repId !== "unassigned")
+    .sort((a, b) => (b.avgPacing ?? -1) - (a.avgPacing ?? -1));
+
+  if (rows.length === 0) {
+    return <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>No rep data to compare yet.</div>;
+  }
+
+  return (
+    <div style={{ overflowX: "auto", marginBottom: 28 }}>
+      <p style={{ color: "var(--ink-60)", fontSize: 13, margin: "0 2px 16px" }}>
+        {rows.length} rep{rows.length === 1 ? "" : "s"} · based on the {latestDate ? fmtDate(latestDate) : "latest"} upload.
+      </p>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 860 }}>
+        <thead>
+          <tr style={{ color: "var(--ink-60)", textAlign: "left", borderBottom: "1px solid var(--line)" }}>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Rep</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Doors</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Pacing%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Acts / Quota</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Needs attn.</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 4MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 5MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 7MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg TWP+%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Zulu%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.repId} onClick={() => onSelectRep(r.repId)} style={{ borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
+              <td style={{ padding: "10px", fontWeight: 600 }}>{r.name}</td>
+              <td style={{ padding: "10px" }}>{r.count}</td>
+              <td style={{ padding: "10px", fontWeight: 600, color: paceStatus(r.avgPacing).color }}>{fmtPct(r.avgPacing)}</td>
+              <td style={{ padding: "10px" }}>
+                {fmtNum(r.totalActs)} / {fmtNum(r.totalQuota)}
+              </td>
+              <td style={{ padding: "10px", fontWeight: 600, color: r.needsAttention > 0 ? "var(--rust)" : "var(--ink)" }}>{r.needsAttention}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr4)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr5)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr7)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgTwp)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgZulu)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
