@@ -24,6 +24,7 @@ export default function DoorDetailPage() {
   const [snapshots, setSnapshots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [metric, setMetric] = useState("cur_acts");
+  const [granularity, setGranularity] = useState("day"); // day | week | month
 
   const [notes, setNotes] = useState([]);
   const [notesLoading, setNotesLoading] = useState(true);
@@ -100,7 +101,7 @@ export default function DoorDetailPage() {
   const latest = snapshots[snapshots.length - 1] || {};
   const merged = door ? withDerived({ ...door, ...latest }) : null;
 
-  const chartData = useMemo(() => {
+  const dailyPoints = useMemo(() => {
     // day-over-day = the change in a cumulative MTD field between consecutive snapshots
     const points = [];
     for (let i = 1; i < snapshots.length; i++) {
@@ -112,7 +113,60 @@ export default function DoorDetailPage() {
     return points;
   }, [snapshots, metric]);
 
-  const hasEnoughHistory = chartData.filter((p) => p.value !== null).length >= 1 && snapshots.length >= 2;
+  // Week/month views sum the same daily deltas into weekly/monthly totals,
+  // rather than diffing raw cumulative values directly — since Current
+  // Acts (and similar fields) reset at the start of each month, a raw
+  // diff across a month boundary wouldn't mean anything.
+  function bucketSum(points, keyFn) {
+    const map = new Map();
+    for (const p of points) {
+      const key = keyFn(p.date);
+      if (!map.has(key)) map.set(key, { key, sum: 0, hasValue: false });
+      if (p.value !== null && p.value !== undefined) {
+        const b = map.get(key);
+        b.sum += p.value;
+        b.hasValue = true;
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+  }
+  function isoWeekStart(dateStr) {
+    const d = new Date(dateStr + "T00:00:00");
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    return d.toISOString().slice(0, 10);
+  }
+
+  const dailyLabeled = useMemo(
+    () => dailyPoints.map((p) => ({ date: p.date, value: p.value, label: fmtDayShort(p.date), tooltipLabel: fmtDate(p.date) })),
+    [dailyPoints]
+  );
+  const weeklyLabeled = useMemo(
+    () =>
+      bucketSum(dailyPoints, isoWeekStart).map((b) => ({
+        date: b.key,
+        value: b.hasValue ? b.sum : null,
+        label: fmtDate(b.key),
+        tooltipLabel: `Week of ${fmtDate(b.key)}`,
+      })),
+    [dailyPoints]
+  );
+  const monthlyLabeled = useMemo(
+    () =>
+      bucketSum(dailyPoints, (d) => d.slice(0, 7)).map((b) => {
+        const d = new Date(b.key + "-01T00:00:00");
+        return {
+          date: b.key,
+          value: b.hasValue ? b.sum : null,
+          label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+          tooltipLabel: d.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+        };
+      }),
+    [dailyPoints]
+  );
+
+  const chartData = granularity === "week" ? weeklyLabeled : granularity === "month" ? monthlyLabeled : dailyLabeled;
+  const hasEnoughHistory = chartData.filter((p) => p.value !== null).length >= 1 && chartData.length >= 2;
 
   if (authLoading || loading) {
     return <div style={{ padding: 40, color: "var(--ink-60)" }}>Loading…</div>;
@@ -144,6 +198,7 @@ export default function DoorDetailPage() {
           </h1>
           <div style={{ color: "var(--ink-60)", fontSize: 14.5, marginTop: 4, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
             <MapPin size={14} /> {merged.city}, {merged.state} {merged.zip} · {merged.market} market · {merged.sub_agent_name}
+            {merged.sub_agent_id ? ` (${merged.sub_agent_id})` : ""}
           </div>
         </div>
         <div style={{ background: paceSt.bg, color: paceSt.color, padding: "10px 18px", borderRadius: 3, textAlign: "center" }}>
@@ -201,40 +256,54 @@ export default function DoorDetailPage() {
         <Kpi label="$50+ plan %" value={fmtPct(merged.cur50Pct)} sub={`Prior mo. ${fmtPct(merged.prev50Pct)}`} />
       </div>
 
-      <SectionLabel icon={<Calendar size={14} />}>Day over day</SectionLabel>
-      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-        {METRICS.map((m) => (
-          <button
-            key={m.key}
-            className="btn-reset"
-            onClick={() => setMetric(m.key)}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 20,
-              fontSize: 13,
-              fontWeight: 600,
-              background: metric === m.key ? "var(--ink)" : "var(--surface)",
-              color: metric === m.key ? "var(--paper)" : "var(--ink-60)",
-              border: `1px solid ${metric === m.key ? "var(--ink)" : "var(--line)"}`,
-            }}
-          >
-            {m.label}
-          </button>
-        ))}
+      <SectionLabel icon={<Calendar size={14} />}>
+        {granularity === "week" ? "Week over week" : granularity === "month" ? "Month over month" : "Day over day"}
+      </SectionLabel>
+      <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {METRICS.map((m) => (
+            <button
+              key={m.key}
+              className="btn-reset"
+              onClick={() => setMetric(m.key)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 20,
+                fontSize: 13,
+                fontWeight: 600,
+                background: metric === m.key ? "var(--ink)" : "var(--surface)",
+                color: metric === m.key ? "var(--paper)" : "var(--ink-60)",
+                border: `1px solid ${metric === m.key ? "var(--ink)" : "var(--line)"}`,
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <select
+          value={granularity}
+          onChange={(e) => setGranularity(e.target.value)}
+          className="field-input"
+          style={{ width: "auto", padding: "6px 10px", fontSize: 13, fontWeight: 600 }}
+        >
+          <option value="day">Day over day</option>
+          <option value="week">Week over week</option>
+          <option value="month">Month over month</option>
+        </select>
       </div>
       <div style={{ background: "var(--surface)", borderRadius: 3, padding: "16px 8px 4px", marginBottom: 28 }}>
         {hasEnoughHistory ? (
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={chartData.map((p) => ({ ...p, day: fmtDayShort(p.date), niceDate: fmtDate(p.date) }))} margin={{ top: 4, right: 20, left: -10, bottom: 0 }}>
+            <LineChart data={chartData} margin={{ top: 4, right: 20, left: -10, bottom: 0 }}>
               <CartesianGrid stroke="var(--line)" vertical={false} />
-              <XAxis dataKey="day" tick={{ fontSize: 12, fill: "#5b655f" }} axisLine={{ stroke: "#d9d6c9" }} tickLine={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#5b655f" }} axisLine={{ stroke: "#d9d6c9" }} tickLine={false} />
               <YAxis tick={{ fontSize: 12, fill: "#5b655f" }} axisLine={false} tickLine={false} allowDecimals={false} width={34} />
               <Tooltip
                 contentStyle={{ background: "#1b2521", border: "none", borderRadius: 4, fontSize: 13 }}
                 labelStyle={{ color: "#ecead2" }}
                 itemStyle={{ color: "#ecead2" }}
                 formatter={(v) => [v ?? "—", METRICS.find((m) => m.key === metric)?.label]}
-                labelFormatter={(_, payload) => (payload && payload[0] ? payload[0].payload.niceDate : "")}
+                labelFormatter={(_, payload) => (payload && payload[0] ? payload[0].payload.tooltipLabel : "")}
               />
               <Line type="monotone" dataKey="value" stroke="#2f6f5e" strokeWidth={2.5} dot={{ r: 3.5, fill: "#2f6f5e" }} connectNulls />
             </LineChart>
@@ -294,6 +363,7 @@ export default function DoorDetailPage() {
       <SectionLabel icon={<Store size={14} />}>Location &amp; contacts</SectionLabel>
       <div style={{ background: "var(--surface)", borderRadius: 3, padding: "16px 18px", fontSize: 14, lineHeight: 1.9 }}>
         <ContactLine label="Door TSP" value={merged.door_tsp} />
+        <ContactLine label="Sub-Agent ID" value={merged.sub_agent_id} />
         <ContactLine label="Store contact" value={merged.contact_name} extra={merged.contact_phone} />
         <ContactLine label="MA field rep" value={merged.ma_field_rep} extra={merged.ma_field_phone} />
         <ContactLine label="Verizon RPM" value={merged.rpm} />
