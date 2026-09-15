@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3, AlertTriangle } from "lucide-react";
+import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3, AlertTriangle, Building2, Layers, ChevronDown, ChevronUp } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import { supabase } from "../../lib/supabaseClient";
 import { useProfile, signOut } from "../../lib/useProfile";
@@ -239,6 +239,28 @@ export default function DashboardPage() {
         >
           <AlertTriangle size={14} /> Watchlist
         </button>
+        <button
+          className="btn-reset"
+          onClick={() => setView("dealer")}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+            background: view === "dealer" ? "var(--ink)" : "var(--surface)", color: view === "dealer" ? "var(--paper)" : "var(--ink-60)",
+            border: `1px solid ${view === "dealer" ? "var(--ink)" : "var(--line)"}`,
+          }}
+        >
+          <Building2 size={14} /> Dealer
+        </button>
+        <button
+          className="btn-reset"
+          onClick={() => setView("subagent")}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+            background: view === "subagent" ? "var(--ink)" : "var(--surface)", color: view === "subagent" ? "var(--paper)" : "var(--ink-60)",
+            border: `1px solid ${view === "subagent" ? "var(--ink)" : "var(--line)"}`,
+          }}
+        >
+          <Layers size={14} /> Sub-Agents
+        </button>
       </div>
 
       {view === "list" && (
@@ -282,8 +304,24 @@ export default function DashboardPage() {
       {view === "watchlist" && !dataLoading && (
         <WatchlistView doors={filtered} latestDate={latestDate} onOpen={(id) => router.push(`/dashboard/${id}`)} />
       )}
+
+      {view === "dealer" && !dataLoading && <DealerView doors={filtered} />}
+
+      {view === "subagent" && !dataLoading && (
+        <SubAgentView doors={filtered} latestDate={latestDate} onOpen={(id) => router.push(`/dashboard/${id}`)} />
+      )}
     </div>
   );
+}
+
+function dealerAddress(d) {
+  return d.sub_agent_name ? `${d.sub_agent_name} — ${d.address}` : d.address || "";
+}
+
+function avg(nums) {
+  const vals = nums.filter((n) => n !== null && n !== undefined && !Number.isNaN(n));
+  if (vals.length === 0) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
 function WatchlistView({ doors, latestDate, onOpen }) {
@@ -297,44 +335,134 @@ function WatchlistView({ doors, latestDate, onOpen }) {
       <p style={{ color: "var(--ink-60)", fontSize: 13, margin: "0 2px 16px" }}>
         {flagged.length} of {doors.length} location{doors.length === 1 ? "" : "s"} flagged, based on the {latestDate ? fmtDate(latestDate) : "latest"} upload.
       </p>
-      {flagged.length === 0 && <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>Nothing flagged right now.</div>}
-      {flagged.map(({ door, reasons }) => (
-        <WatchlistRow key={door.store_id} door={door} reasons={reasons} onOpen={() => onOpen(door.store_id)} />
-      ))}
+      {flagged.length === 0 ? (
+        <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>Nothing flagged right now.</div>
+      ) : (
+        <div style={{ overflowX: "auto", marginBottom: 28 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 720 }}>
+            <thead>
+              <tr style={{ color: "var(--ink-60)", textAlign: "left", borderBottom: "1px solid var(--line)" }}>
+                <th style={{ padding: "8px 10px", fontWeight: 600 }}>Dealer / Address</th>
+                <th style={{ padding: "8px 10px", fontWeight: 600 }}>Pacing Acts</th>
+                <th style={{ padding: "8px 10px", fontWeight: 600 }}>4MR%</th>
+                <th style={{ padding: "8px 10px", fontWeight: 600 }}>5MR%</th>
+                <th style={{ padding: "8px 10px", fontWeight: 600 }}>7MR%</th>
+                <th style={{ padding: "8px 10px", fontWeight: 600 }}>Zulu%</th>
+                <th style={{ padding: "8px 10px", fontWeight: 600 }}>TWP+%</th>
+                <th style={{ padding: "8px 10px", fontWeight: 600 }}>Flags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {flagged.map(({ door, reasons }) => {
+                const reasonKeys = new Set(reasons.map((r) => r.key));
+                const cell = (key, value) => (
+                  <td style={{ padding: "10px", fontWeight: reasonKeys.has(key) ? 700 : 400, color: reasonKeys.has(key) ? "var(--rust)" : "var(--ink)" }}>
+                    {value}
+                  </td>
+                );
+                return (
+                  <tr key={door.store_id} onClick={() => onOpen(door.store_id)} style={{ borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
+                    <td style={{ padding: "10px" }}>
+                      <div style={{ fontWeight: 600 }}>{dealerAddress(door)}</div>
+                      <div style={{ color: "var(--ink-60)", fontSize: 12 }}>
+                        {door.city}, {door.state} · {door.store_id}
+                      </div>
+                    </td>
+                    {cell("pacing", fmtNum(door.cur_pace))}
+                    {cell("mr4", fmtPct(door.cur_4mr_pct))}
+                    {cell("mr5", fmtPct(door.cur_5mr_pct))}
+                    {cell("mr7", fmtPct(door.cur_7mr_pct))}
+                    {cell("zulu", fmtPct(door.cur_zulu_pct))}
+                    {cell("twp", fmtPct(door.twpProtectPct))}
+                    <td style={{ padding: "10px", fontWeight: 600, color: "var(--rust)", whiteSpace: "nowrap" }}>{reasons.length}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-function WatchlistRow({ door, reasons, onOpen }) {
-  const sp = statusPill(door.status);
+function DealerView({ doors }) {
+  const groups = new Map();
+  doors.forEach((d) => {
+    const name = d.sub_agent_name || "No dealer listed";
+    if (!groups.has(name)) groups.set(name, { id: d.sub_agent_id || null, list: [] });
+    groups.get(name).list.push(d);
+  });
+
+  const rows = Array.from(groups.entries())
+    .map(([dealer, { id, list }]) => ({
+      dealer,
+      id,
+      count: list.length,
+      avgPacing: avg(list.map((d) => d.pacingPct)),
+      totalActs: list.reduce((s, d) => s + (d.cur_acts || 0), 0),
+      totalQuota: list.reduce((s, d) => s + (d.cur_quota || 0), 0),
+      avgFamily: avg(list.map((d) => d.curFamilyPct)),
+      avgPort: avg(list.map((d) => d.curPortPct)),
+      avg50: avg(list.map((d) => d.cur50Pct)),
+      avgMr4: avg(list.map((d) => d.cur_4mr_pct)),
+      avgMr5: avg(list.map((d) => d.cur_5mr_pct)),
+      avgMr7: avg(list.map((d) => d.cur_7mr_pct)),
+      avgTwp: avg(list.map((d) => d.twpProtectPct)),
+      avgZulu: avg(list.map((d) => d.cur_zulu_pct)),
+    }))
+    .sort((a, b) => (b.avgPacing ?? -1) - (a.avgPacing ?? -1));
+
+  if (rows.length === 0) {
+    return <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>No dealer data to summarize yet.</div>;
+  }
+
   return (
-    <button
-      className="btn-reset"
-      onClick={onOpen}
-      style={{ display: "block", width: "100%", textAlign: "left", padding: "14px 12px", borderBottom: "1px solid var(--line)" }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{door.address}</div>
-          <div style={{ fontSize: 13, color: "var(--ink-60)", marginTop: 2, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <span>{door.city}, {door.state}</span>
-            <span>·</span>
-            <span>{door.store_id}</span>
-            <span className="pill" style={{ background: sp.bg, color: sp.color }}>{door.status}</span>
-          </div>
-        </div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--rust)", flexShrink: 0, whiteSpace: "nowrap" }}>
-          {reasons.length} flag{reasons.length > 1 ? "s" : ""}
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-        {reasons.map((r) => (
-          <span key={r.key} className="pill" style={{ background: "var(--rust-soft)", color: "var(--rust)" }}>
-            {r.describe(door)}
-          </span>
-        ))}
-      </div>
-    </button>
+    <div style={{ overflowX: "auto", marginBottom: 28 }}>
+      <p style={{ color: "var(--ink-60)", fontSize: 13, margin: "0 2px 16px" }}>
+        Averages across all locations under each dealer (Sub-Agent Name).
+      </p>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 900 }}>
+        <thead>
+          <tr style={{ color: "var(--ink-60)", textAlign: "left", borderBottom: "1px solid var(--line)" }}>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Dealer</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Sub-Agent ID</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Doors</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Pacing%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Acts / Quota</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Family%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Port%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg $50+%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 4MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 5MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 7MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg TWP+%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Zulu%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.dealer} style={{ borderBottom: "1px solid var(--line)" }}>
+              <td style={{ padding: "10px", fontWeight: 600 }}>{r.dealer}</td>
+              <td style={{ padding: "10px", color: "var(--ink-60)" }}>{r.id || "—"}</td>
+              <td style={{ padding: "10px" }}>{r.count}</td>
+              <td style={{ padding: "10px", fontWeight: 600, color: paceStatus(r.avgPacing).color }}>{fmtPct(r.avgPacing)}</td>
+              <td style={{ padding: "10px" }}>
+                {fmtNum(r.totalActs)} / {fmtNum(r.totalQuota)}
+              </td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgFamily)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgPort)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avg50)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr4)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr5)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr7)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgTwp)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgZulu)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -351,7 +479,7 @@ function PacingChart({ doors, onOpen }) {
   const data = doors
     .slice()
     .sort((a, b) => (a.pacingPct ?? 999) - (b.pacingPct ?? 999))
-    .map((d) => ({ name: truncateName(d.address), storeId: d.store_id, pacing: d.pacingPct ?? 0, color: paceStatus(d.pacingPct).color }));
+    .map((d) => ({ name: truncateName(dealerAddress(d)), storeId: d.store_id, pacing: d.pacingPct ?? 0, color: paceStatus(d.pacingPct).color }));
 
   if (data.length === 0) return <EmptyChart />;
   const height = Math.max(160, data.length * 26 + 40);
@@ -362,7 +490,7 @@ function PacingChart({ doors, onOpen }) {
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: 30, left: 0, bottom: 0 }} onClick={(e) => e?.activePayload?.[0] && onOpen(e.activePayload[0].payload.storeId)}>
           <CartesianGrid stroke="var(--line)" horizontal={false} />
           <XAxis type="number" tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: "#5b655f" }} axisLine={{ stroke: "#d9d6c9" }} tickLine={false} />
-          <YAxis type="category" dataKey="name" width={160} tick={{ fontSize: 11, fill: "#1b2521" }} axisLine={false} tickLine={false} />
+          <YAxis type="category" dataKey="name" width={190} tick={{ fontSize: 11, fill: "#1b2521" }} axisLine={false} tickLine={false} />
           <Tooltip
             cursor={{ fill: "var(--line)", opacity: 0.4 }}
             formatter={(v) => [`${Number(v).toFixed(1)}%`, "Pacing"]}
@@ -385,7 +513,7 @@ function ActsVsQuotaChart({ doors, onOpen }) {
   const data = doors
     .slice()
     .sort((a, b) => (b.cur_acts || 0) - (a.cur_acts || 0))
-    .map((d) => ({ name: truncateName(d.address), storeId: d.store_id, acts: d.cur_acts || 0, quota: d.cur_quota || 0 }));
+    .map((d) => ({ name: truncateName(dealerAddress(d)), storeId: d.store_id, acts: d.cur_acts || 0, quota: d.cur_quota || 0 }));
 
   if (data.length === 0) return <EmptyChart />;
   const height = Math.max(160, data.length * 30 + 40);
@@ -396,7 +524,7 @@ function ActsVsQuotaChart({ doors, onOpen }) {
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: 20, left: 0, bottom: 0 }} onClick={(e) => e?.activePayload?.[0] && onOpen(e.activePayload[0].payload.storeId)}>
           <CartesianGrid stroke="var(--line)" horizontal={false} />
           <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#5b655f" }} axisLine={{ stroke: "#d9d6c9" }} tickLine={false} />
-          <YAxis type="category" dataKey="name" width={160} tick={{ fontSize: 11, fill: "#1b2521" }} axisLine={false} tickLine={false} />
+          <YAxis type="category" dataKey="name" width={190} tick={{ fontSize: 11, fill: "#1b2521" }} axisLine={false} tickLine={false} />
           <Tooltip
             cursor={{ fill: "var(--line)", opacity: 0.4 }}
             contentStyle={{ background: "#1b2521", border: "none", borderRadius: 4, fontSize: 13 }}
@@ -408,6 +536,155 @@ function ActsVsQuotaChart({ doors, onOpen }) {
           <Bar dataKey="acts" name="Current Acts" fill="var(--teal)" radius={[0, 3, 3, 0]} cursor="pointer" />
         </BarChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+function SubAgentView({ doors, latestDate, onOpen }) {
+  const [expanded, setExpanded] = useState(new Set());
+
+  const groups = new Map();
+  doors.forEach((d) => {
+    const name = d.sub_agent_name || "No sub-agent listed";
+    if (!groups.has(name)) groups.set(name, { id: d.sub_agent_id || null, list: [] });
+    groups.get(name).list.push(d);
+  });
+
+  const rows = Array.from(groups.entries())
+    .map(([name, { id, list }]) => ({
+      name,
+      id,
+      list,
+      count: list.length,
+      avgPacing: avg(list.map((d) => d.pacingPct)),
+      totalActs: list.reduce((s, d) => s + (d.cur_acts || 0), 0),
+      totalQuota: list.reduce((s, d) => s + (d.cur_quota || 0), 0),
+      avgFamily: avg(list.map((d) => d.curFamilyPct)),
+      avgPort: avg(list.map((d) => d.curPortPct)),
+      avg50: avg(list.map((d) => d.cur50Pct)),
+      avgMr4: avg(list.map((d) => d.cur_4mr_pct)),
+      avgMr5: avg(list.map((d) => d.cur_5mr_pct)),
+      avgMr7: avg(list.map((d) => d.cur_7mr_pct)),
+      avgTwp: avg(list.map((d) => d.twpProtectPct)),
+      avgZulu: avg(list.map((d) => d.cur_zulu_pct)),
+    }))
+    .sort((a, b) => (b.avgPacing ?? -1) - (a.avgPacing ?? -1));
+
+  function toggle(name) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  if (rows.length === 0) {
+    return <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>No sub-agent data yet.</div>;
+  }
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <p style={{ color: "var(--ink-60)", fontSize: 13, margin: "0 2px 16px" }}>
+        {rows.length} sub-agent{rows.length === 1 ? "" : "s"} · averages based on the {latestDate ? fmtDate(latestDate) : "latest"} upload. Click one to see its stores.
+      </p>
+      {rows.map((r) => {
+        const isOpen = expanded.has(r.name);
+        return (
+          <div key={r.name} style={{ marginBottom: 8, border: "1px solid var(--line)", borderRadius: 3, overflow: "hidden" }}>
+            <button
+              className="btn-reset"
+              onClick={() => toggle(r.name)}
+              style={{ width: "100%", textAlign: "left", padding: "14px 16px", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {r.name}
+                  {r.id ? ` (${r.id})` : ""}
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--ink-60)", marginTop: 2 }}>
+                  {r.count} store{r.count === 1 ? "" : "s"} · {fmtNum(r.totalActs)} / {fmtNum(r.totalQuota)} acts
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                <div style={{ textAlign: "right" }}>
+                  <div className="display" style={{ fontSize: 20, color: paceStatus(r.avgPacing).color }}>
+                    {fmtPct(r.avgPacing)}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "var(--ink-40)" }}>avg pacing</div>
+                </div>
+                {isOpen ? <ChevronUp size={16} color="var(--ink-60)" /> : <ChevronDown size={16} color="var(--ink-60)" />}
+              </div>
+            </button>
+
+            {isOpen && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 1, background: "var(--line)", borderTop: "1px solid var(--line)" }}>
+                  <MiniStat label="Avg Family%" value={fmtPct(r.avgFamily)} />
+                  <MiniStat label="Avg Port%" value={fmtPct(r.avgPort)} />
+                  <MiniStat label="Avg $50+%" value={fmtPct(r.avg50)} />
+                  <MiniStat label="Avg 4MR%" value={fmtPct(r.avgMr4)} />
+                  <MiniStat label="Avg 5MR%" value={fmtPct(r.avgMr5)} />
+                  <MiniStat label="Avg 7MR%" value={fmtPct(r.avgMr7)} />
+                  <MiniStat label="Avg TWP+%" value={fmtPct(r.avgTwp)} />
+                  <MiniStat label="Avg Zulu%" value={fmtPct(r.avgZulu)} />
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 640 }}>
+                    <thead>
+                      <tr style={{ color: "var(--ink-60)", textAlign: "left" }}>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Store</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Pacing%</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Acts / Quota</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Family%</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Port%</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>4MR%</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>5MR%</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>7MR%</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>TWP+%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {r.list
+                        .slice()
+                        .sort((a, b) => (a.pacingPct ?? 999) - (b.pacingPct ?? 999))
+                        .map((d) => (
+                          <tr key={d.store_id} onClick={() => onOpen(d.store_id)} style={{ borderTop: "1px solid var(--line)", cursor: "pointer" }}>
+                            <td style={{ padding: "8px 12px" }}>
+                              <div style={{ fontWeight: 600 }}>{d.address}</div>
+                              <div style={{ color: "var(--ink-60)", fontSize: 11.5 }}>
+                                {d.city}, {d.state} · {d.store_id}
+                              </div>
+                            </td>
+                            <td style={{ padding: "8px 12px", fontWeight: 600, color: paceStatus(d.pacingPct).color }}>{fmtPct(d.pacingPct)}</td>
+                            <td style={{ padding: "8px 12px" }}>
+                              {fmtNum(d.cur_acts)} / {fmtNum(d.cur_quota)}
+                            </td>
+                            <td style={{ padding: "8px 12px" }}>{fmtPct(d.curFamilyPct)}</td>
+                            <td style={{ padding: "8px 12px" }}>{fmtPct(d.curPortPct)}</td>
+                            <td style={{ padding: "8px 12px" }}>{fmtPct(d.cur_4mr_pct)}</td>
+                            <td style={{ padding: "8px 12px" }}>{fmtPct(d.cur_5mr_pct)}</td>
+                            <td style={{ padding: "8px 12px" }}>{fmtPct(d.cur_7mr_pct)}</td>
+                            <td style={{ padding: "8px 12px" }}>{fmtPct(d.twpProtectPct)}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div style={{ background: "var(--surface)", padding: "8px 12px" }}>
+      <div style={{ fontSize: 10.5, color: "var(--ink-60)" }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 600 }}>{value}</div>
     </div>
   );
 }
@@ -455,7 +732,7 @@ function DoorRow({ door, onOpen }) {
     >
       <div style={{ width: 6, alignSelf: "stretch", background: paceSt.color, borderRadius: 2, flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{door.address}</div>
+        <div style={{ fontSize: 15.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{dealerAddress(door)}</div>
         <div style={{ fontSize: 13, color: "var(--ink-60)", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <span>
             {door.city}, {door.state}
