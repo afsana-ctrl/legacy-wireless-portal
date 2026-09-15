@@ -129,6 +129,9 @@ export default function DashboardPage() {
   const onPaceCount = doors.filter((d) => d.pacingPct !== null && d.pacingPct >= 100).length;
   const totalActs = doors.reduce((s, d) => s + (d.cur_acts || 0), 0);
   const totalQuota = doors.reduce((s, d) => s + (d.cur_quota || 0), 0);
+  const avgMr4 = avg(doors.map((d) => d.cur_4mr_pct));
+  const avgMr5 = avg(doors.map((d) => d.cur_5mr_pct));
+  const avgMr7 = avg(doors.map((d) => d.cur_7mr_pct));
 
   if (authLoading || !profile) {
     return <Centered>Loading your account…</Centered>;
@@ -200,6 +203,9 @@ export default function DashboardPage() {
         <StatTile label="Combined quota" value={fmtNum(totalQuota)} />
         <StatTile label="On pace" value={onPaceCount} tone="var(--teal)" />
         <StatTile label="Needs attention" value={behindCount} tone={behindCount > 0 ? "var(--rust)" : undefined} />
+        <StatTile label="Avg 4MR%" value={fmtPct(avgMr4)} />
+        <StatTile label="Avg 5MR%" value={fmtPct(avgMr5)} />
+        <StatTile label="Avg 7MR%" value={fmtPct(avgMr7)} />
       </div>
       <p style={{ color: "var(--ink-40)", fontSize: 12, margin: "0 2px 20px" }}>
         {latestDate ? `Last updated ${fmtDate(latestDate)}` : "No data imported yet"}
