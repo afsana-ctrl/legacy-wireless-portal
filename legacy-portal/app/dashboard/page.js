@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [latestDate, setLatestDate] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [activationsHistory, setActivationsHistory] = useState([]);
   const [view, setView] = useState("list"); // list | charts | watchlist | dealer | subagent | team
   const [teamDoors, setTeamDoors] = useState([]);
   const [teamLoading, setTeamLoading] = useState(true);
@@ -71,6 +72,7 @@ export default function DashboardPage() {
         if (active) {
           setDoors([]);
           setLatestDate(null);
+          setActivationsHistory([]);
           setDataLoading(false);
         }
         return;
@@ -91,6 +93,36 @@ export default function DashboardPage() {
         byStore.set(row.store_id, arr);
       }
 
+      // Full Day 1..Day N history, summed across every door. Computed per
+      // store first (ascending by date) so a month rollover — where
+      // Current Acts resets to 0 — is treated as a fresh count for that
+      // day instead of producing a huge fake negative "activation" value.
+      const fullByStore = new Map();
+      for (const row of snapRows || []) {
+        const arr = fullByStore.get(row.store_id) || [];
+        arr.push(row);
+        fullByStore.set(row.store_id, arr);
+      }
+      const totalsByDate = new Map();
+      for (const [, rows] of fullByStore) {
+        const asc = rows.slice().sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+        for (let i = 0; i < asc.length; i++) {
+          const cur = asc[i];
+          const prev = asc[i - 1];
+          let value;
+          if (cur.cur_acts == null) value = null;
+          else if (!prev || prev.cur_acts == null) value = cur.cur_acts;
+          else if (prev.snapshot_date.slice(0, 7) !== cur.snapshot_date.slice(0, 7)) value = cur.cur_acts; // new month — reset, not a real diff
+          else value = cur.cur_acts - prev.cur_acts;
+          if (value !== null) {
+            totalsByDate.set(cur.snapshot_date, (totalsByDate.get(cur.snapshot_date) || 0) + value);
+          }
+        }
+      }
+      const history = Array.from(totalsByDate.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, value]) => ({ date, value }));
+
       const allDates = (snapRows || []).map((r) => r.snapshot_date);
       const newest = allDates.length ? allDates.reduce((a, b) => (a > b ? a : b)) : null;
 
@@ -104,6 +136,7 @@ export default function DashboardPage() {
       if (!active) return;
       setDoors(merged);
       setLatestDate(newest);
+      setActivationsHistory(history);
       setDataLoading(false);
     }
 
@@ -168,7 +201,10 @@ export default function DashboardPage() {
         (d.address || "").toLowerCase().includes(q) ||
         (d.city || "").toLowerCase().includes(q) ||
         (d.store_id || "").toLowerCase().includes(q) ||
-        (d.market || "").toLowerCase().includes(q)
+        (d.market || "").toLowerCase().includes(q) ||
+        String(d.door_tsp || "").toLowerCase().includes(q) ||
+        (d.sub_agent_name || "").toLowerCase().includes(q) ||
+        (d.sub_agent_id || "").toLowerCase().includes(q)
       );
     });
   }, [doors, query]);
@@ -351,19 +387,21 @@ export default function DashboardPage() {
         </button>
       </div>
 
+      {view !== "team" && (
+        <div style={{ position: "relative", marginBottom: 16 }}>
+          <Search size={16} style={{ position: "absolute", left: 12, top: 12, color: "var(--ink-40)" }} />
+          <input
+            className="field-input"
+            style={{ paddingLeft: 36 }}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by address, city, market, store ID, Door TSP, or Sub-Agent"
+          />
+        </div>
+      )}
+
       {view === "list" && (
         <>
-          <div style={{ position: "relative", marginBottom: 4 }}>
-            <Search size={16} style={{ position: "absolute", left: 12, top: 12, color: "var(--ink-40)" }} />
-            <input
-              className="field-input"
-              style={{ paddingLeft: 36 }}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by address, city, market, or store ID"
-            />
-          </div>
-
           <div style={{ marginTop: 8 }}>
             {dataLoading && <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>Loading locations…</div>}
             {!dataLoading && filtered.length === 0 && (
@@ -386,6 +424,8 @@ export default function DashboardPage() {
           <PacingChart doors={filtered} onOpen={(id) => router.push(`/dashboard/${id}`)} />
           <ChartLabel>Current Acts vs. Quota — all locations</ChartLabel>
           <ActsVsQuotaChart doors={filtered} onOpen={(id) => router.push(`/dashboard/${id}`)} />
+          <ChartLabel>Current Acts, Day 1 through Day N (non-cumulative, all doors combined)</ChartLabel>
+          <ActivationsHistoryChart history={activationsHistory} />
         </>
       )}
 
@@ -864,6 +904,41 @@ function MiniStat({ label, value }) {
     <div style={{ background: "var(--surface)", padding: "8px 12px" }}>
       <div style={{ fontSize: 10.5, color: "var(--ink-60)" }}>{label}</div>
       <div style={{ fontSize: 14, fontWeight: 600 }}>{value}</div>
+    </div>
+  );
+}
+
+function ActivationsHistoryChart({ history }) {
+  const data = history.map((p) => ({
+    date: p.date,
+    label: fmtDate(p.date),
+    value: p.value,
+  }));
+
+  if (data.length === 0) {
+    return (
+      <div style={{ padding: "32px 4px", color: "var(--ink-60)", background: "var(--surface)", borderRadius: 3, marginBottom: 24 }}>
+        No history yet — this fills in as more days are imported.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: "var(--surface)", borderRadius: 3, padding: "16px 8px 8px", marginBottom: 28 }}>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={data} margin={{ top: 4, right: 20, left: -10, bottom: 0 }}>
+          <CartesianGrid stroke="var(--line)" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5b655f" }} axisLine={{ stroke: "#d9d6c9" }} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={{ fontSize: 11, fill: "#5b655f" }} axisLine={false} tickLine={false} allowDecimals={false} width={40} />
+          <Tooltip
+            formatter={(v) => [v, "Activations"]}
+            contentStyle={{ background: "#1b2521", border: "none", borderRadius: 4, fontSize: 13 }}
+            labelStyle={{ color: "#ecead2" }}
+            itemStyle={{ color: "#ecead2" }}
+          />
+          <Bar dataKey="value" name="Activations" fill="var(--teal)" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
