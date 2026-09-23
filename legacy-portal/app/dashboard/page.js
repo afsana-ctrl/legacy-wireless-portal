@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3, AlertTriangle, Building2, Layers, ChevronDown, ChevronUp, ClipboardList, Map } from "lucide-react";
+import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3, AlertTriangle, Building2, Layers, ChevronDown, ChevronUp, ClipboardList, Map as MapIcon } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import { supabase } from "../../lib/supabaseClient";
 import { useProfile, signOut } from "../../lib/useProfile";
@@ -407,7 +407,7 @@ export default function DashboardPage() {
             border: `1px solid ${view === "state" ? "var(--ink)" : "var(--line)"}`,
           }}
         >
-          <Map size={14} /> State
+          <MapIcon size={14} /> State
         </button>
       </div>
 
