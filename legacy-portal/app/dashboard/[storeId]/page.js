@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { ChevronLeft, MapPin, TrendingUp, Calendar, Package, Radio, Store, MessageSquare } from "lucide-react";
+import { ChevronLeft, MapPin, TrendingUp, Calendar, Package, Radio, Store, MessageSquare, ClipboardList, CheckCircle2 } from "lucide-react";
 import { supabase } from "../../../lib/supabaseClient";
 import { useProfile } from "../../../lib/useProfile";
 import { fmtNum, fmtPct, fmtDate, fmtDayShort, paceStatus, statusPill, withDerived } from "../../../lib/format";
@@ -73,6 +73,63 @@ export default function DoorDetailPage() {
     const d = new Date(s);
     if (Number.isNaN(d.getTime())) return "—";
     return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+
+  const isAdmin = profile?.role === "admin";
+  const [actionPlans, setActionPlans] = useState([]);
+  const [planLoading, setPlanLoading] = useState(true);
+  const [planText, setPlanText] = useState("");
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planError, setPlanError] = useState(null);
+
+  async function loadPlans() {
+    setPlanLoading(true);
+    const { data, error } = await supabase.from("action_plans").select("*").eq("store_id", storeId).order("created_at", { ascending: false });
+    if (error) console.error(error);
+    setActionPlans(data || []);
+    setPlanLoading(false);
+  }
+
+  useEffect(() => {
+    if (!profile) return;
+    loadPlans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, profile]);
+
+  const activeRequest = actionPlans.find((p) => p.status === "requested") || null;
+  const latestSubmitted = actionPlans.find((p) => p.status === "submitted") || null;
+
+  async function requestPlan() {
+    setPlanBusy(true);
+    setPlanError(null);
+    const { error } = await supabase.from("action_plans").insert({
+      store_id: storeId,
+      rep_id: door?.rep_id || null,
+      requested_by: user.id,
+      status: "requested",
+    });
+    if (error) setPlanError(error.message);
+    await loadPlans();
+    setPlanBusy(false);
+  }
+
+  async function submitPlan() {
+    if (!planText.trim()) return;
+    setPlanBusy(true);
+    setPlanError(null);
+    const payload = { status: "submitted", plan_text: planText.trim(), submitted_at: new Date().toISOString() };
+    const { error } = activeRequest
+      ? await supabase.from("action_plans").update(payload).eq("id", activeRequest.id)
+      : await supabase.from("action_plans").insert({ store_id: storeId, rep_id: door?.rep_id || null, ...payload });
+    if (error) setPlanError(error.message);
+    else setPlanText("");
+    await loadPlans();
+    setPlanBusy(false);
+  }
+
+  async function acknowledgePlan(id) {
+    await supabase.from("action_plans").update({ acknowledged: true, acknowledged_at: new Date().toISOString() }).eq("id", id);
+    await loadPlans();
   }
 
   useEffect(() => {
@@ -247,6 +304,77 @@ export default function DoorDetailPage() {
           ))}
       </div>
 
+      <SectionLabel icon={<ClipboardList size={14} />}>Action plan</SectionLabel>
+      <div style={{ background: "var(--surface)", borderRadius: 3, padding: "14px 16px", marginBottom: 28 }}>
+        {planLoading ? (
+          <div style={{ color: "var(--ink-60)", fontSize: 13.5 }}>Loading…</div>
+        ) : (
+          <>
+            {isAdmin && activeRequest && (
+              <div style={{ marginBottom: 12, padding: "8px 10px", background: "var(--gold-soft)", color: "var(--gold)", borderRadius: 3, fontSize: 13.5 }}>
+                Waiting on {rep?.name || "the rep"} to submit a plan — requested {fmtNoteTime(activeRequest.created_at)}.
+              </div>
+            )}
+
+            {latestSubmitted && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, color: "var(--ink-60)", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                  Submitted {fmtNoteTime(latestSubmitted.submitted_at)}
+                  {latestSubmitted.acknowledged && (
+                    <span style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--teal)" }}>
+                      <CheckCircle2 size={12} /> Reviewed
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 14, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{latestSubmitted.plan_text}</div>
+                {isAdmin && !latestSubmitted.acknowledged && (
+                  <button
+                    className="btn-reset"
+                    onClick={() => acknowledgePlan(latestSubmitted.id)}
+                    style={{ marginTop: 8, padding: "6px 14px", borderRadius: 3, background: "var(--ink)", color: "var(--paper)", fontSize: 13, fontWeight: 600 }}
+                  >
+                    Mark as reviewed
+                  </button>
+                )}
+              </div>
+            )}
+
+            {isAdmin && !activeRequest && (
+              <button
+                className="btn-reset"
+                disabled={planBusy}
+                onClick={requestPlan}
+                style={{ padding: "8px 16px", borderRadius: 3, background: "var(--ink)", color: "var(--paper)", fontSize: 13.5, fontWeight: 600, opacity: planBusy ? 0.5 : 1 }}
+              >
+                {planBusy ? "Requesting…" : "Request an action plan"}
+              </button>
+            )}
+
+            {!isAdmin && (
+              <div>
+                <textarea
+                  value={planText}
+                  onChange={(e) => setPlanText(e.target.value)}
+                  rows={3}
+                  placeholder={activeRequest ? "Write the action plan requested for this store…" : "Submit an action plan for this store, if one's needed…"}
+                  style={{ width: "100%", padding: 10, fontSize: 14, fontFamily: "inherit", border: "1px solid var(--line)", borderRadius: 3, background: "white", color: "var(--ink)", resize: "vertical" }}
+                />
+                <button
+                  className="btn-reset"
+                  disabled={planBusy || !planText.trim()}
+                  onClick={submitPlan}
+                  style={{ marginTop: 8, padding: "7px 16px", borderRadius: 3, background: "var(--ink)", color: "var(--paper)", fontWeight: 600, fontSize: 13.5, opacity: planBusy || !planText.trim() ? 0.5 : 1 }}
+                >
+                  {planBusy ? "Submitting…" : "Submit action plan"}
+                </button>
+              </div>
+            )}
+
+            {planError && <div style={{ color: "var(--rust)", fontSize: 13, marginTop: 8 }}>{planError}</div>}
+          </>
+        )}
+      </div>
+
       <SectionLabel icon={<TrendingUp size={14} />}>Activations — current vs. prior month</SectionLabel>
       <div className="grid-tiles" style={{ marginBottom: 8 }}>
         <Kpi label="Current acts (MTD)" value={fmtNum(merged.cur_acts)} sub={`Prior mo. ${fmtNum(merged.prev_acts)}`} />
@@ -254,6 +382,8 @@ export default function DoorDetailPage() {
         <Kpi label="Family / multi-line" value={fmtPct(merged.curFamilyPct)} sub={`Prior mo. ${fmtPct(merged.prevFamilyPct)}`} />
         <Kpi label="Port-in %" value={fmtPct(merged.curPortPct)} sub={`Prior mo. ${fmtPct(merged.prevPortPct)}`} />
         <Kpi label="$50+ plan %" value={fmtPct(merged.cur50Pct)} sub={`Prior mo. ${fmtPct(merged.prev50Pct)}`} />
+        <Kpi label="Current Edge%" value={fmtPct(merged.cur_edge_pct)} sub={`Prior mo. ${fmtPct(merged.prev_edge_pct)}`} />
+        <Kpi label="Current AutoPay%" value={fmtPct(merged.cur_autopay_pct)} sub={`Prior mo. ${fmtPct(merged.prev_autopay_pct)}`} />
       </div>
 
       <SectionLabel icon={<Calendar size={14} />}>
