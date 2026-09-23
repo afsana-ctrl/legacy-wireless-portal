@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3, AlertTriangle, Building2, Layers, ChevronDown, ChevronUp } from "lucide-react";
+import { Search, Phone, Mail, LogOut, TrendingUp, TrendingDown, UploadCloud, Users, List, BarChart3, AlertTriangle, Building2, Layers, ChevronDown, ChevronUp, ClipboardList, Map } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import { supabase } from "../../lib/supabaseClient";
 import { useProfile, signOut } from "../../lib/useProfile";
@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const [teamDoors, setTeamDoors] = useState([]);
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamLatestDate, setTeamLatestDate] = useState(null);
+  const [pendingPlanCount, setPendingPlanCount] = useState(0);
 
   const isAdmin = profile?.role === "admin";
 
@@ -146,6 +147,16 @@ export default function DashboardPage() {
     };
   }, [selectedRepId]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    supabase
+      .from("action_plans")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "submitted")
+      .eq("acknowledged", false)
+      .then(({ count }) => setPendingPlanCount(count || 0));
+  }, [isAdmin, view]);
+
   const selectedRep = reps.find((r) => r.id === selectedRepId) || profile?.reps || null;
 
   // Admin-only: load every rep's doors at once for the Team comparison view.
@@ -248,6 +259,7 @@ export default function DashboardPage() {
           <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
             <NavLink icon={<UploadCloud size={14} />} label="Import data" onClick={() => router.push("/admin/import")} />
             <NavLink icon={<Users size={14} />} label="Assign reps" onClick={() => router.push("/admin/assign")} />
+            <NavLink icon={<ClipboardList size={14} />} label="Action Plans" badge={pendingPlanCount} onClick={() => router.push("/admin/action-plans")} />
             <NavLink icon={<LogOut size={14} />} label="Sign out" onClick={() => signOut(router)} />
           </div>
         </div>
@@ -294,6 +306,7 @@ export default function DashboardPage() {
                 <>
                   <NavLink icon={<UploadCloud size={14} />} label="Import data" onClick={() => router.push("/admin/import")} />
                   <NavLink icon={<Users size={14} />} label="Assign reps" onClick={() => router.push("/admin/assign")} />
+                  <NavLink icon={<ClipboardList size={14} />} label="Action Plans" badge={pendingPlanCount} onClick={() => router.push("/admin/action-plans")} />
                 </>
               )}
               <NavLink icon={<LogOut size={14} />} label="Sign out" onClick={() => signOut(router)} />
@@ -385,6 +398,17 @@ export default function DashboardPage() {
         >
           <Layers size={14} /> Sub-Agents
         </button>
+        <button
+          className="btn-reset"
+          onClick={() => setView("state")}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+            background: view === "state" ? "var(--ink)" : "var(--surface)", color: view === "state" ? "var(--paper)" : "var(--ink-60)",
+            border: `1px solid ${view === "state" ? "var(--ink)" : "var(--line)"}`,
+          }}
+        >
+          <Map size={14} /> State
+        </button>
       </div>
 
       {view !== "team" && (
@@ -451,6 +475,8 @@ export default function DashboardPage() {
       {view === "subagent" && !dataLoading && (
         <SubAgentView doors={filtered} latestDate={latestDate} onOpen={(id) => router.push(`/dashboard/${id}`)} />
       )}
+
+      {view === "state" && !dataLoading && <StateView doors={filtered} />}
     </div>
   );
 }
@@ -520,6 +546,87 @@ function TeamView({ doors, reps, loading, latestDate, onSelectRep }) {
                 {fmtNum(r.totalActs)} / {fmtNum(r.totalQuota)}
               </td>
               <td style={{ padding: "10px", fontWeight: 600, color: r.needsAttention > 0 ? "var(--rust)" : "var(--ink)" }}>{r.needsAttention}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr4)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr5)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgMr7)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgTwp)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgZulu)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StateView({ doors }) {
+  const groups = new Map();
+  doors.forEach((d) => {
+    const name = d.state || "No state listed";
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(d);
+  });
+
+  const rows = Array.from(groups.entries())
+    .map(([state, list]) => ({
+      state,
+      count: list.length,
+      avgPacing: avg(list.map((d) => d.pacingPct)),
+      totalActs: list.reduce((s, d) => s + (d.cur_acts || 0), 0),
+      totalQuota: list.reduce((s, d) => s + (d.cur_quota || 0), 0),
+      avgFamily: avg(list.map((d) => d.curFamilyPct)),
+      avgPort: avg(list.map((d) => d.curPortPct)),
+      avg50: avg(list.map((d) => d.cur50Pct)),
+      avgEdge: avg(list.map((d) => d.cur_edge_pct)),
+      avgAutopay: avg(list.map((d) => d.cur_autopay_pct)),
+      avgMr4: avg(list.map((d) => d.cur_4mr_pct)),
+      avgMr5: avg(list.map((d) => d.cur_5mr_pct)),
+      avgMr7: avg(list.map((d) => d.cur_7mr_pct)),
+      avgTwp: avg(list.map((d) => d.twpProtectPct)),
+      avgZulu: avg(list.map((d) => d.cur_zulu_pct)),
+    }))
+    .sort((a, b) => (b.avgPacing ?? -1) - (a.avgPacing ?? -1));
+
+  if (rows.length === 0) {
+    return <div style={{ padding: "32px 4px", color: "var(--ink-60)" }}>No state data to summarize yet.</div>;
+  }
+
+  return (
+    <div style={{ overflowX: "auto", marginBottom: 28 }}>
+      <p style={{ color: "var(--ink-60)", fontSize: 13, margin: "0 2px 16px" }}>Averages across all locations in each state.</p>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 980 }}>
+        <thead>
+          <tr style={{ color: "var(--ink-60)", textAlign: "left", borderBottom: "1px solid var(--line)" }}>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>State</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Doors</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Pacing%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Acts / Quota</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Family%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Port%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg $50+%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Edge%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg AutoPay%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 4MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 5MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg 7MR%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg TWP+%</th>
+            <th style={{ padding: "8px 10px", fontWeight: 600 }}>Avg Zulu%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.state} style={{ borderBottom: "1px solid var(--line)" }}>
+              <td style={{ padding: "10px", fontWeight: 600 }}>{r.state}</td>
+              <td style={{ padding: "10px" }}>{r.count}</td>
+              <td style={{ padding: "10px", fontWeight: 600, color: paceStatus(r.avgPacing).color }}>{fmtPct(r.avgPacing)}</td>
+              <td style={{ padding: "10px" }}>
+                {fmtNum(r.totalActs)} / {fmtNum(r.totalQuota)}
+              </td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgFamily)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgPort)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avg50)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgEdge)}</td>
+              <td style={{ padding: "10px" }}>{fmtPct(r.avgAutopay)}</td>
               <td style={{ padding: "10px" }}>{fmtPct(r.avgMr4)}</td>
               <td style={{ padding: "10px" }}>{fmtPct(r.avgMr5)}</td>
               <td style={{ padding: "10px" }}>{fmtPct(r.avgMr7)}</td>
@@ -955,10 +1062,15 @@ function Centered({ children }) {
   );
 }
 
-function NavLink({ icon, label, onClick }) {
+function NavLink({ icon, label, onClick, badge }) {
   return (
     <button className="btn-reset" onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-60)", fontSize: 13, whiteSpace: "nowrap" }}>
       {icon} {label}
+      {!!badge && (
+        <span style={{ background: "var(--rust)", color: "white", fontSize: 11, fontWeight: 700, borderRadius: 10, padding: "1px 6px", minWidth: 16, textAlign: "center" }}>
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
