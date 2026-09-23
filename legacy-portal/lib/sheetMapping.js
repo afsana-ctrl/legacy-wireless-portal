@@ -13,6 +13,7 @@ export const HEADER_TO_FIELD = {
   Market: "market",
   "District Description": "district",
   Region: "region",
+  "Sub-Agent ID": "sub_agent_id",
   "Sub-Agent Name": "sub_agent_name",
   Tenure: "tenure",
   "Building Type": "building_type",
@@ -102,6 +103,10 @@ export const HEADER_TO_FIELD = {
   "Prior FWA Close %": "prev_fwa_close_pct",
   "Prior Zulu%": "prev_zulu_pct",
   "Current Zulu%": "cur_zulu_pct",
+  "Prior Edge Mix": "prev_edge_pct",
+  "Current Edge Mix": "cur_edge_pct",
+  "Prior Autopay All%": "prev_autopay_pct",
+  "Current Autopay All%": "cur_autopay_pct",
 
   // Full 2MR–7MR replenishment cohort breakdown (acts, payments, %)
   "Prior 2MR Acts": "prev_2mr_acts", "Prior 2MR Payments": "prev_2mr_pay", "Prior 2MR%": "prev_2mr_pct",
@@ -120,7 +125,7 @@ export const HEADER_TO_FIELD = {
 
 export const DOOR_FIELDS = [
   "store_id", "door_tsp", "address", "city", "state", "zip", "market", "district", "region",
-  "sub_agent_name", "tenure", "building_type", "open_date",
+  "sub_agent_id", "sub_agent_name", "tenure", "building_type", "open_date",
   "ma_field_rep", "ma_field_phone", "ma_field_email",
   "contact_name", "contact_phone", "rpm", "sm",
 ];
@@ -137,7 +142,7 @@ export const SNAPSHOT_NUMERIC_FIELDS = [
   "cur_edge_apply", "upgrades", "cur_tops",
   "cur_pacing_pct", "cur_family_pct", "prev_family_pct", "cur_port_pct", "prev_port_pct",
   "cur_50_pct", "prev_50_pct", "cur_65_pct", "prev_65_pct", "cur_fwa_close_pct", "prev_fwa_close_pct",
-  "cur_zulu_pct", "prev_zulu_pct",
+  "cur_zulu_pct", "prev_zulu_pct", "cur_edge_pct", "prev_edge_pct", "cur_autopay_pct", "prev_autopay_pct",
   "prev_2mr_acts", "prev_2mr_pay", "prev_2mr_pct", "cur_2mr_acts", "cur_2mr_pay", "cur_2mr_pct",
   "prev_3mr_acts", "prev_3mr_pay", "prev_3mr_pct", "cur_3mr_acts", "cur_3mr_pay", "cur_3mr_pct",
   "prev_4mr_acts", "prev_4mr_pay", "prev_4mr_pct", "cur_4mr_acts", "cur_4mr_pay", "cur_4mr_pct",
